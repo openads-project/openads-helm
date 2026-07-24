@@ -1,0 +1,38 @@
+{{- if .Values.enabled }}
+{{- if .Values.ports }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: "{{ .Values.name | default .Release.Name }}-external"
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Values.name | default .Release.Name }}
+  type: NodePort
+  ports:
+    {{- range .Values.ports }}
+    - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
+      nodePort: {{ .nodePort }}
+      port: {{ .port | default .targetPort }}
+      targetPort: {{ .targetPort }}
+      protocol: "{{ .protocol | default "TCP" }}"
+    {{- end }}
+{{- end }}
+---
+{{- if .Values.expose }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: "{{ .Values.name | default .Release.Name }}"
+spec:
+  selector:
+    app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+  type: ClusterIP
+  ports:
+    {{- range .Values.expose }}
+    - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
+      port: {{ .port | default .targetPort }}
+      targetPort: {{ .targetPort }}
+      protocol: "{{ .protocol | default "TCP" }}"
+    {{- end }}
+{{- end }}
+{{- end }}

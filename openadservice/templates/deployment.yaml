@@ -1,0 +1,110 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Values.name | default .Release.Name }}"
+  labels:
+    app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+    spec:
+      imagePullSecrets:
+      - name: gitlab-registry-credentials
+      terminationGracePeriodSeconds: 5 # TODO: better signal handling in docker-ros images would be preferred?
+      {{- if .Values.gpu }}
+      runtimeClassName: nvidia
+      {{- end }}
+      containers:
+      - name: "{{ .Values.name | default .Release.Name }}"
+        image: "{{ .Values.imageName }}:{{ .Values.imageTag }}"
+        imagePullPolicy: Always
+        {{- with .Values.command }}
+        command:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.args }}
+        args:
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        env:
+        {{- if .Values.gpu }}
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "all"
+        {{- end }}
+        {{- if .Values.x11Display }}
+        - name: DISPLAY
+          value: "{{ .Values.x11Display }}"
+        - name: XAUTHORITY
+          value: /.Xauthority
+        {{- end }}
+        {{- range $key, $value := .Values.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        volumeMounts:
+        - name: timezone
+          mountPath: /etc/timezone
+        - name: localtime
+          mountPath: /etc/localtime
+        {{- if .Values.x11XauthorityFile }}
+        - name: x11-unix
+          mountPath: /tmp/.X11-unix
+        - name: xauthority
+          mountPath: /.Xauthority
+        {{- end }}
+        {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
+        - name: "{{ include "rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
+          mountPath: "{{ .Values.rosParamFileMountPath }}"
+          subPath: "{{ .Values.rosParamFileMountPath | base }}"
+        {{- end }}
+        {{- range .Values.volumes }}
+        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath }}
+        - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
+          mountPath: "{{ .mountPath }}"
+        {{- if .data }}
+          subPath: "{{ .mountPath | base }}"
+        {{- end }}
+        {{- end }}
+        {{- end }}
+      volumes:
+      - name: timezone
+        hostPath:
+          path: /etc/timezone
+      - name: localtime
+        hostPath:
+          path: /etc/localtime
+      {{- if .Values.x11XauthorityFile }}
+      - name: x11-unix
+        hostPath:
+          path: /tmp/.X11-unix
+      - name: xauthority
+        hostPath:
+          path: "{{ .Values.x11XauthorityFile }}"
+      {{- end }}
+      {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
+      - name: "{{ include "rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
+        configMap:
+          name: "{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
+      {{- end }}
+      {{- range .Values.volumes }}
+      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath }}
+      - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
+      {{- if .data }}
+        configMap:
+          name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}"
+      {{- else if .hostPath }}
+        hostPath:
+          path: "{{ tpl .hostPath $ }}"
+      {{- end }}
+      {{- end }}
+      {{- end }}
+{{- end }}

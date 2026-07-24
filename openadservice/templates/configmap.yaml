@@ -1,0 +1,24 @@
+{{- if .Values.enabled }}
+{{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
+data:
+  {{ .Values.rosParamFileMountPath | base | quote }}: |-
+{{ .Values.rosParamFileData | indent 4 }}
+---
+{{- end }}
+{{- range .Values.volumes }}
+{{- if and .data (not (empty (tpl .data $))) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}"
+data:
+  {{ .mountPath | base | quote }}: |-
+{{ tpl .data $ | indent 4 }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,61 @@
+# enabled is a flag to optionally disable the chart, e.g., for disabling dependencies of a parent chart
+enabled: true
+
+# name is the (overwritable) release name
+name: null
+
+# imageName is the container image name
+imageName: rwthika/ros2
+
+# imageTag is the container image tag
+imageTag: latest
+
+# gpu is flag to enable GPU resources in the container
+gpu: false
+
+# x11Display is the value of the `DISPLAY` environment variable needed for X11 GUI forwarding
+x11Display: null
+
+# x11XauthorityFile is the host path to the Xauthority file needed for X11 GUI forwarding
+x11XauthorityFile: null
+
+# command is a list of commands to set for `command`
+command: null
+
+# args is a list of command args to set for `args`
+args: null
+
+# env is a map of environment variables
+env:
+  ROS_DOMAIN_ID: 0
+  RMW_IMPLEMENTATION: rmw_zenoh_cpp
+  RUST_LOG: zenoh=error
+  ZENOH_CONFIG_OVERRIDE: mode="client";connect/endpoints=["tcp/zenoh-router:7447"];connect/timeout_ms=-1
+  ZENOH_ROUTER_CHECK_ATTEMPTS: 0
+
+# ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
+ports: []
+# - port:         # source port (defaults to `targetPort` if not specified)
+#   targetPort:   # pod target port
+#   nodePort:     # node source port
+#   protocol      # protocol (default: `TCP`)
+
+# expose is a list of maps with `port`, `targetPort`, `protocol` to create `ClusterIP` services
+expose: []
+# - port:         # source port (defaults to `targetPort` if not specified)
+#   targetPort:   # pod target port
+#   protocol      # protocol (default: `TCP`)
+
+
+# volumes is a list of maps with `mountPath`, `hostPath` or `mountPath`, `data` to create `hostPath` or `configMap` volumes
+volumes: []
+# - mountPath:  # container mount path (for `hostPath` volumes)
+#   hostPath:   # host path
+# - mountPath:  # container mount path (for `configMap` volumes)
+#   data:       # ConfigMap contents
+
+# rosParamFileMountPath is the container mount path for the standard ROS parameter file
+rosParamFileMountPath: null
+
+# rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
+rosParamFileData: null
