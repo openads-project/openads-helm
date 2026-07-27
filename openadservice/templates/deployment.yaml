@@ -33,6 +33,12 @@ spec:
         args:
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if .Values.shm }}
+        securityContext:
+          capabilities:
+            add:
+            - IPC_LOCK
+        {{- end }}
         env:
         {{- if .Values.gpu }}
         - name: NVIDIA_VISIBLE_DEVICES
@@ -55,6 +61,10 @@ spec:
           mountPath: /etc/timezone
         - name: localtime
           mountPath: /etc/localtime
+        {{- if .Values.shm }}
+        - name: shared-memory
+          mountPath: /dev/shm
+        {{- end }}
         {{- if .Values.x11XauthorityFile }}
         - name: x11-unix
           mountPath: /tmp/.X11-unix
@@ -82,6 +92,12 @@ spec:
       - name: localtime
         hostPath:
           path: /etc/localtime
+      {{- if .Values.shm }}
+      - name: shared-memory
+        hostPath:
+          path: /dev/shm
+          type: Directory
+      {{- end }}
       {{- if .Values.x11XauthorityFile }}
       - name: x11-unix
         hostPath:

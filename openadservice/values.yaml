@@ -19,6 +19,9 @@ x11Display: null
 # x11XauthorityFile is the host path to the Xauthority file needed for X11 GUI forwarding
 x11XauthorityFile: null
 
+# shm is flag to enable the container to access the host's shared memory (/dev/shm)
+shm: false
+
 # command is a list of commands to set for `command`
 command: null
 
