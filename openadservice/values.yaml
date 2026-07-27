@@ -25,8 +25,8 @@ entrypoint: null
 # command is a list of command args to set for `args` (equivalent to Docker's `command`)
 command: null
 
-# env is a map of environment variables
-env:
+# environment is a map of environment variables
+environment:
   ROS_DOMAIN_ID: 0
   RMW_IMPLEMENTATION: rmw_zenoh_cpp
   RUST_LOG: zenoh=warn
