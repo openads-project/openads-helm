@@ -23,7 +23,7 @@ spec:
       {{- end }}
       containers:
       - name: "{{ .Values.name | default .Release.Name }}"
-        image: "{{ .Values.imageName }}:{{ .Values.imageTag }}"
+        image: "{{ .Values.image }}"
         imagePullPolicy: Always
         {{- with .Values.command }}
         command:

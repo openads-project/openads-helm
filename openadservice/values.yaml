@@ -4,13 +4,10 @@ enabled: true
 # name is the (overwritable) release name
 name: null
 
-# imageName is the container image name
-imageName: rwthika/ros2
+# image is the container image name including tag
+image: rwthika/ros2:latest
 
-# imageTag is the container image tag
-imageTag: latest
-
-# gpu is flag to enable GPU resources in the container
+# gpu is a flag to enable GPU resources in the container
 gpu: false
 
 # x11Display is the value of the `DISPLAY` environment variable needed for X11 GUI forwarding
@@ -19,7 +16,7 @@ x11Display: null
 # x11XauthorityFile is the host path to the Xauthority file needed for X11 GUI forwarding
 x11XauthorityFile: null
 
-# shm is flag to enable the container to access the host's shared memory (/dev/shm)
+# shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
 
 # command is a list of commands to set for `command`
