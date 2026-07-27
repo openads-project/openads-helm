@@ -25,13 +25,13 @@ spec:
       - name: "{{ .Values.name | default .Release.Name }}"
         image: "{{ .Values.image }}"
         imagePullPolicy: Always
-        {{- with .Values.command }}
+        {{- if .Values.entrypoint }}
         command:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.entrypoint | nindent 8 }}
         {{- end }}
-        {{- with .Values.args }}
+        {{- if .Values.command }}
         args:
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.command | nindent 8 }}
         {{- end }}
         {{- if .Values.shm }}
         securityContext:

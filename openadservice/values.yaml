@@ -19,11 +19,11 @@ x11XauthorityFile: null
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
 
-# command is a list of commands to set for `command`
-command: null
+# entrypoint is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
+entrypoint: null
 
-# args is a list of command args to set for `args`
-args: null
+# command is a list of command args to set for `args` (equivalent to Docker's `command`)
+command: null
 
 # env is a map of environment variables
 env:
