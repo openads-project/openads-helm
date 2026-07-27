@@ -30,6 +30,7 @@ environment:
   ROS_DOMAIN_ID: 0
   RMW_IMPLEMENTATION: rmw_zenoh_cpp
   RUST_LOG: zenoh=warn
+  ZENOH_ROUTER_CHECK_ATTEMPS: 0
 
 # ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
 ports: []
