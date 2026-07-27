@@ -43,4 +43,4 @@ jobs:
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: charts/openadservice
           update-dependencies: true
-          force: true # TODO
+          force: true
