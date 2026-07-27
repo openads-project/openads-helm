@@ -1,8 +1,11 @@
 # enabled is a flag to optionally disable the chart, e.g., for disabling dependencies of a parent chart
 enabled: true
 
-# name is the (overwritable) release name
+# name is the main name of deployment and container and also prefixes other resource names
 name: null
+
+# labels is a map of labels to add to the deployment and other resources
+labels: {}
 
 # image is the container image name including tag
 image: rwthika/ros2:latest

@@ -1,19 +1,26 @@
 {{- if .Values.enabled }}
 apiVersion: apps/v1
 kind: Deployment
+{{- $name := .Values.name | default .Release.Name }}
 metadata:
-  name: "{{ .Values.name | default .Release.Name }}"
+  name: "{{ $name }}"
   labels:
-    app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := .Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+      app.kubernetes.io/name: "{{ $name }}"
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+        app.kubernetes.io/name: "{{ $name }}"
+        {{- range $key, $value := .Values.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -26,7 +33,7 @@ spec:
       runtimeClassName: nvidia
       {{- end }}
       containers:
-      - name: "{{ .Values.name | default .Release.Name }}"
+      - name: "{{ $name }}"
         image: "{{ .Values.image }}"
         imagePullPolicy: "{{ .Values.imagePullPolicy }}"
         {{- with .Values.entrypoint }}
