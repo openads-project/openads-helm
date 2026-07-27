@@ -1,4 +1,4 @@
-name: helm-push
+name: helm-oci
 
 on:
   push:
@@ -9,17 +9,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  helm-push:
+  helm-oci:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Push Helm chart
-        uses: bsord/helm-push@v4.1.0
+        uses: bsord/helm-push@5ec3320fb5720a0a5aa210d871999f2b836f2d97
         with:
           useOCIRegistry: true
           registry-url:  oci://ghcr.io/${{ github.repository }}
           username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: openadservice
+          update-dependencies: true
           force: true
