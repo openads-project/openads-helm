@@ -24,6 +24,6 @@ jobs:
           registry-url:  oci://ghcr.io/${{ github.repository }}
           username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
-          chart-folder: openadservice
+          chart-folder: charts/openadservice
           update-dependencies: true
-          force: true
+          force: true # TODO

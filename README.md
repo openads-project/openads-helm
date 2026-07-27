@@ -1,1 +1,1 @@
-# openadservice-helm
+# openads-helm
