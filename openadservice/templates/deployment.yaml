@@ -1,4 +1,5 @@
 {{- if .Values.enabled }}
+{{- if .Values.enabledDeployment }}
 apiVersion: apps/v1
 kind: Deployment
 {{- $name := .Values.name | default .Release.Name }}
@@ -134,4 +135,5 @@ spec:
       {{- end }}
       {{- end }}
       {{- end }}
+{{- end }}
 {{- end }}

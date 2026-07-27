@@ -1,4 +1,5 @@
 {{- if .Values.enabled }}
+{{- if .Values.enabledService }}
 {{- if .Values.ports }}
 apiVersion: v1
 kind: Service
@@ -34,5 +35,6 @@ spec:
       targetPort: {{ .targetPort }}
       protocol: "{{ .protocol | default "TCP" }}"
     {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

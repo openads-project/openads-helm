@@ -1,4 +1,5 @@
 {{- if .Values.enabled }}
+{{- if .Values.enabledConfigMap }}
 {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
 apiVersion: v1
 kind: ConfigMap
@@ -19,6 +20,7 @@ data:
   {{ .mountPath | base | quote }}: |-
 {{ tpl .data $ | indent 4 }}
 ---
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

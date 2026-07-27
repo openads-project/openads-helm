@@ -1,6 +1,15 @@
 # enabled is a flag to optionally disable the chart, e.g., for disabling dependencies of a parent chart
 enabled: true
 
+# enabledDeployment is a flag to optionally disable the deployment
+enabledDeployment: true
+
+# enabledConfigMap is a flag to optionally disable the configMap, if one would be created
+enabledConfigMap: true
+
+# enabledService is a flag to optionally disable the service, if one would be created
+enabledService: true
+
 # name is the main name of deployment and container and also prefixes other resource names
 name: null
 
