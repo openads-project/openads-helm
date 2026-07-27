@@ -25,6 +25,12 @@ imagePullSecrets: []
 # imagePullPolicy is the image pull policy for the container image
 imagePullPolicy: IfNotPresent
 
+# entrypoint is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
+entrypoint: null # TODO: is this naming of entrypoint/command too confusing? rather stick to k8s names, as with, e.g., imagePullPolicy? should then also rename environment back to env
+
+# command is a list of command args to set for `args` (equivalent to Docker's `command`)
+command: null
+
 # gpu is a flag to enable GPU resources in the container
 gpu: false
 
@@ -37,21 +43,8 @@ x11XauthorityFile: null
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
 
-# entrypoint is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
-entrypoint: null # TODO: is this naming of entrypoint/command too confusing? rather stick to k8s names, as with, e.g., imagePullPolicy? should then also rename environment back to env
-
-# command is a list of command args to set for `args` (equivalent to Docker's `command`)
-command: null
-
 # initContainers is a list of init container specs to add to the pod
 initContainers: []
-
-# environment is a map of environment variables
-environment:
-  ROS_DOMAIN_ID: 0
-  RMW_IMPLEMENTATION: rmw_zenoh_cpp
-  RUST_LOG: zenoh=warn
-  ZENOH_ROUTER_CHECK_ATTEMPS: 0
 
 # ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
 ports: []
@@ -66,6 +59,18 @@ expose: []
 #   targetPort:   # pod target port
 #   protocol      # protocol (default: `TCP`)
 
+# environment is a map of environment variables
+environment:
+  ROS_DOMAIN_ID: 0
+  RMW_IMPLEMENTATION: rmw_zenoh_cpp
+  RUST_LOG: zenoh=warn
+  ZENOH_ROUTER_CHECK_ATTEMPS: 0
+
+# rosParamFileMountPath is the container mount path for the standard ROS parameter file
+rosParamFileMountPath: null
+
+# rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
+rosParamFileData: null
 
 # volumes is a list of maps with `mountPath`, `hostPath` or `mountPath`, `data` to create `hostPath` or `configMap` volumes
 volumes:
@@ -900,9 +905,3 @@ volumes:
       },
 
     }
-
-# rosParamFileMountPath is the container mount path for the standard ROS parameter file
-rosParamFileMountPath: null
-
-# rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
-rosParamFileData: null
