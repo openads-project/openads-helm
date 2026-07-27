@@ -43,6 +43,9 @@ entrypoint: null # TODO: is this naming of entrypoint/command too confusing? rat
 # command is a list of command args to set for `args` (equivalent to Docker's `command`)
 command: null
 
+# initContainers is a list of init container specs to add to the pod
+initContainers: []
+
 # environment is a map of environment variables
 environment:
   ROS_DOMAIN_ID: 0

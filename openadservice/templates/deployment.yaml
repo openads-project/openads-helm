@@ -33,6 +33,10 @@ spec:
       {{- if .Values.gpu }}
       runtimeClassName: nvidia
       {{- end }}
+      {{- with .Values.initContainers }}
+      initContainers:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: "{{ $name }}"
         image: "{{ .Values.image }}"
