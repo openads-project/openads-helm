@@ -7,6 +7,12 @@ name: null
 # image is the container image name including tag
 image: rwthika/ros2:latest
 
+# imagePullSecrets is a list of secret names required for pulling the container image from a private registry
+imagePullSecrets: []
+
+# imagePullPolicy is the image pull policy for the container image
+imagePullPolicy: IfNotPresent
+
 # gpu is a flag to enable GPU resources in the container
 gpu: false
 
@@ -20,7 +26,7 @@ x11XauthorityFile: null
 shm: true
 
 # entrypoint is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
-entrypoint: null
+entrypoint: null # TODO: is this naming of entrypoint/command too confusing? rather stick to k8s names, as with, e.g., imagePullPolicy? should then also rename environment back to env
 
 # command is a list of command args to set for `args` (equivalent to Docker's `command`)
 command: null

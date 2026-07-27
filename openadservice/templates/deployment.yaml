@@ -15,8 +15,12 @@ spec:
       labels:
         app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
     spec:
+      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-      - name: gitlab-registry-credentials
+      {{- range . }}
+      - name: "{{ . }}"
+      {{- end }}
+      {{- end }}
       terminationGracePeriodSeconds: 5 # TODO: better signal handling in docker-ros images would be preferred?
       {{- if .Values.gpu }}
       runtimeClassName: nvidia
@@ -24,14 +28,14 @@ spec:
       containers:
       - name: "{{ .Values.name | default .Release.Name }}"
         image: "{{ .Values.image }}"
-        imagePullPolicy: Always
-        {{- if .Values.entrypoint }}
+        imagePullPolicy: "{{ .Values.imagePullPolicy }}"
+        {{- with .Values.entrypoint }}
         command:
-        {{- toYaml .Values.entrypoint | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.command }}
+        {{- with .Values.command }}
         args:
-        {{- toYaml .Values.command | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- if .Values.shm }}
         securityContext:
