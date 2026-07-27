@@ -43,6 +43,11 @@ x11XauthorityFile: null
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
 
+# dependsOn is a list of hosts/services to wait for before starting the main container (by means of `initContainers` running `nc`)
+# - host: # hostname or service name
+#   port: # port
+dependsOn: []
+
 # initContainers is a list of init container specs to add to the pod
 initContainers: []
 
