@@ -3,8 +3,14 @@
 {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
 apiVersion: v1
 kind: ConfigMap
+{{- $name := include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}
 metadata:
-  name: "{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $.Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
 data:
   {{ .Values.rosParamFileMountPath | base | quote }}: |-
 {{ .Values.rosParamFileData | indent 4 }}
@@ -14,8 +20,14 @@ data:
 {{- if and .data (not (empty (tpl .data $))) }}
 apiVersion: v1
 kind: ConfigMap
+{{- $name := include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}
 metadata:
-  name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}"
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $.Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
 data:
   {{ .mountPath | base | quote }}: |-
 {{ tpl .data $ | indent 4 }}

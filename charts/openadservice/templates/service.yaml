@@ -3,11 +3,17 @@
 {{- if .Values.ports }}
 apiVersion: v1
 kind: Service
+{{- $name := .Values.name | default .Release.Name }}-external }}
 metadata:
-  name: "{{ .Values.name | default .Release.Name }}-external"
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := .Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
 spec:
   selector:
-    app.kubernetes.io/name: {{ .Values.name | default .Release.Name }}
+    app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
   type: NodePort
   ports:
     {{- range .Values.ports }}
@@ -22,8 +28,14 @@ spec:
 {{- if .Values.expose }}
 apiVersion: v1
 kind: Service
+{{- $name := .Values.name | default .Release.Name }}
 metadata:
-  name: "{{ .Values.name | default .Release.Name }}"
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := .Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
 spec:
   selector:
     app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
