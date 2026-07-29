@@ -99,6 +99,9 @@ spec:
         - name: xauthority
           mountPath: /.Xauthority
         {{- end }}
+        - name: "{{ include "rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
+          mountPath: /opt/ros/jazzy/share/rmw_zenoh_cpp/config/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
+          subPath: DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
         {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
         - name: "{{ include "rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
           mountPath: "{{ .Values.rosParamFileMountPath }}"
@@ -134,6 +137,9 @@ spec:
         hostPath:
           path: "{{ .Values.x11XauthorityFile }}"
       {{- end }}
+      - name: "{{ include "rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
+        configMap:
+          name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}"
       {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
       - name: "{{ include "rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
         configMap:
