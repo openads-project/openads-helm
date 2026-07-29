@@ -1,14 +1,14 @@
-# enabled is a flag to optionally disable the chart, e.g., for disabling dependencies of a parent chart
-enabled: true
+# enable is a flag to optionally disable the chart, e.g., for disabling dependencies of a parent chart
+enable: true
 
-# enabledDeployment is a flag to optionally disable the deployment
-enabledDeployment: true
+# enableDeployment is a flag to optionally disable the deployment
+enableDeployment: true
 
-# enabledConfigMap is a flag to optionally disable the configMap, if one would be created
-enabledConfigMap: true
+# enableConfigMap is a flag to optionally disable the configMap, if one would be created
+enableConfigMap: true
 
-# enabledService is a flag to optionally disable the service, if one would be created
-enabledService: true
+# enableService is a flag to optionally disable the service, if one would be created
+enableService: true
 
 # name is the main name of deployment and container and also prefixes other resource names
 name: null
@@ -25,11 +25,11 @@ imagePullSecrets: []
 # imagePullPolicy is the image pull policy for the container image
 imagePullPolicy: IfNotPresent
 
-# entrypoint is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
-entrypoint: null # TODO: is this naming of entrypoint/command too confusing? rather stick to k8s names, as with, e.g., imagePullPolicy? should then also rename environment back to env
-
-# command is a list of command args to set for `args` (equivalent to Docker's `command`)
+# command is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
 command: null
+
+# args is a list of command args to set for `args` (equivalent to Docker's `command`)
+args: null
 
 # gpu is a flag to enable GPU resources in the container
 gpu: false
@@ -64,8 +64,8 @@ expose: []
 #   targetPort:   # pod target port
 #   protocol      # protocol (default: `TCP`)
 
-# environment is a map of environment variables
-environment:
+# env is a map of environment variables
+env:
   ROS_DOMAIN_ID: 0
   RMW_IMPLEMENTATION: rmw_zenoh_cpp
   RUST_LOG: zenoh=warn

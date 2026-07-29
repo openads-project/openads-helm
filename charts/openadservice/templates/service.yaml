@@ -1,5 +1,5 @@
-{{- if .Values.enabled }}
-{{- if .Values.enabledService }}
+{{- if .Values.enable }}
+{{- if .Values.enableService }}
 {{- if .Values.ports }}
 apiVersion: v1
 kind: Service

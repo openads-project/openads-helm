@@ -1,5 +1,5 @@
-{{- if .Values.enabled }}
-{{- if .Values.enabledConfigMap }}
+{{- if .Values.enable }}
+{{- if .Values.enableConfigMap }}
 {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
 apiVersion: v1
 kind: ConfigMap
