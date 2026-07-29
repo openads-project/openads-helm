@@ -13,7 +13,13 @@ on:
 
 jobs:
   helm-oci:
+    name: Publish ${{ matrix.chart }}
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chart:
+          - openadservice
+          - zenoh-router
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -21,7 +27,7 @@ jobs:
         if: ${{ github.ref_type != 'tag' }}
         shell: bash
         env:
-          CHART_FOLDER: charts/openadservice
+          CHART_FOLDER: charts/${{ matrix.chart }}
           REF_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           chart_file="${CHART_FOLDER}/Chart.yaml"
@@ -41,6 +47,6 @@ jobs:
           registry-url:  oci://ghcr.io/${{ github.repository }}
           username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
-          chart-folder: charts/openadservice
+          chart-folder: charts/${{ matrix.chart }}
           update-dependencies: true
           force: true

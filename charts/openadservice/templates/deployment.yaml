@@ -108,11 +108,11 @@ spec:
           subPath: "{{ .Values.rosParamFileMountPath | base }}"
         {{- end }}
         {{- range .Values.volumes }}
-        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath }}
+        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName }}
         - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
           mountPath: "{{ .mountPath }}"
-        {{- if .data }}
-          subPath: "{{ .mountPath | base }}"
+        {{- if or .data .configMapName }}
+          subPath: "{{ .configMapKey | default (.mountPath | base) }}"
         {{- end }}
         {{- end }}
         {{- end }}
@@ -146,11 +146,14 @@ spec:
           name: "{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
       {{- end }}
       {{- range .Values.volumes }}
-      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath }}
+      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName }}
       - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
       {{- if .data }}
         configMap:
           name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}"
+      {{- else if .configMapName }}
+        configMap:
+          name: "{{ tpl .configMapName $ }}"
       {{- else if .hostPath }}
         hostPath:
           path: "{{ tpl .hostPath $ }}"
