@@ -34,7 +34,7 @@ jobs:
           chart_version="${base_version}-${ref_slug}"
           sed -i -E "s/^version:.*$/version: ${chart_version}/" "${chart_file}"
           echo "Publishing chart version ${chart_version}"
-      - name: Push Helm chart
+      - name: Push Helm chart as OCI artifact
         uses: bsord/helm-push@5ec3320fb5720a0a5aa210d871999f2b836f2d97
         with:
           useOCIRegistry: true
