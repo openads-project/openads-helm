@@ -29,7 +29,7 @@ spec:
       - name: "{{ . }}"
       {{- end }}
       {{- end }}
-      terminationGracePeriodSeconds: 5 # TODO: better signal handling in docker-ros images would be preferred?
+      terminationGracePeriodSeconds: 1
       {{- if .Values.gpu }}
       runtimeClassName: nvidia
       {{- end }}
