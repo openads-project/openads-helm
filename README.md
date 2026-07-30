@@ -9,7 +9,7 @@
 
 **Essential OpenADS Helm Charts**
 
-This repository contains essential Helm charts for [***OpenADS***](https://openads-project.github.io/), the *Open Automated Driving Systems* project. Essentials charts are those that do not directly belong to a specific OpenADService or another specific repository. In particular, the [openadservice](./charts/openadservice) chart provides a base structure and configuration for all dependent charts of specific OpenADServices, which are maintained in their respective repositories.
+This repository contains essential Helm charts for [***OpenADS***](https://openads-project.github.io/), the *Open Automated Driving Systems* project. Essential charts are those that do not directly belong to a specific OpenADService. In particular, the [openadservice](./charts/openadservice) chart provides a base structure and configuration for all dependent charts of specific OpenADServices, which are maintained in their respective repositories.
 
 <p align="center">
   <strong>📦 <a href="#-charts">Charts</a></strong> • <strong>🚀 <a href="#-usage">Usage</a></strong>
