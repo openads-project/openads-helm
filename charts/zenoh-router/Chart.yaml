@@ -6,4 +6,4 @@ description: Zenoh Router for ROS 2 RMW Zenoh
 dependencies:
   - repository: oci://ghcr.io/openads-project/openads-helm
     name: openadservice
-    version: 1.0.0-init # TODO: 1.0.0
+    version: 1.0.0
