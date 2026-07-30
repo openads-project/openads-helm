@@ -24,7 +24,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Temporarily modify chart version to '1.2.3-<GIT-REF>'
-        if: ${{ github.ref_type != 'tag' }}
+        if: ${{ github.ref_name != 'main' }}
         shell: bash
         env:
           CHART_FOLDER: charts/${{ matrix.chart }}
@@ -49,4 +49,4 @@ jobs:
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: charts/${{ matrix.chart }}
           update-dependencies: true
-          force: true
+          force: false
