@@ -1,0 +1,88 @@
+# enable is a flag to optionally disable the chart, e.g., for disabling dependencies of a parent chart
+enable: true
+
+# enableDeployment is a flag to optionally disable the deployment
+enableDeployment: true
+
+# enableConfigMap is a flag to optionally disable the configMap, if one would be created
+enableConfigMap: true
+
+# enableService is a flag to optionally disable the service, if one would be created
+enableService: true
+
+# name is the main name of deployment and container and also prefixes other resource names
+name: null
+
+# labels is a map of labels to add to the deployment and other resources
+labels: {}
+
+# image is the container image name including tag
+image: rwthika/ros2:latest
+
+# imagePullSecrets is a list of secret names required for pulling the container image from a private registry
+imagePullSecrets: []
+
+# imagePullPolicy is the image pull policy for the container image
+imagePullPolicy: IfNotPresent
+
+# command is a list of commands to set for `command` (equivalent to Docker's `entrypoint`)
+command: null
+
+# args is a list of command args to set for `args` (equivalent to Docker's `command`)
+args: null
+
+# gpu is a flag to enable GPU resources in the container
+gpu: false
+
+# x11Display is the value of the `DISPLAY` environment variable needed for X11 GUI forwarding
+x11Display: null
+
+# x11XauthorityFile is the host path to the Xauthority file needed for X11 GUI forwarding
+x11XauthorityFile: null
+
+# shm is a flag to enable the container to access the host's shared memory (/dev/shm)
+shm: true
+
+# dependsOn is a list of hosts/services to wait for before starting the main container (by means of `initContainers` running `nc`)
+# - host: # hostname or service name
+#   port: # port
+dependsOn: []
+
+# initContainers is a list of init container specs to add to the pod
+initContainers: []
+
+# ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
+ports: []
+# - port:         # source port (defaults to `targetPort` if not specified)
+#   targetPort:   # pod target port
+#   nodePort:     # node source port
+#   protocol      # protocol (default: `TCP`)
+
+# expose is a list of maps with `port`, `targetPort`, `protocol` to create `ClusterIP` services
+expose: []
+# - port:         # source port (defaults to `targetPort` if not specified)
+#   targetPort:   # pod target port
+#   protocol      # protocol (default: `TCP`)
+
+# env is a map of environment variables
+env:
+  ROS_DOMAIN_ID: 0
+  RMW_IMPLEMENTATION: rmw_zenoh_cpp
+  RUST_LOG: zenoh=warn
+  ZENOH_ROUTER_CHECK_ATTEMPS: 0
+
+# rosParamFileMountPath is the container mount path for the standard ROS parameter file
+rosParamFileMountPath: null
+
+# rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
+rosParamFileData: null
+
+# volumes is a list of maps for hostPath, inline ConfigMap, or existing ConfigMap volumes
+volumes: []
+# - mountPath:      # container mount path (for `hostPath` volumes)
+#   hostPath:       # host path
+# - mountPath:      # container mount path (for `configMap` volumes)
+#   data:           # ConfigMap contents
+# - mountPath:      # container mount path (for existing `configMap` volumes)
+#   configMapName:  # existing ConfigMap name
+#   configMapKey:   # optional key; defaults to the basename of mountPath

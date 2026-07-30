@@ -1,0 +1,26 @@
+openadservice:
+  name: zenoh-router
+  image: eclipse/zenoh:1.8.0
+  env:
+    RUST_LOG: zenoh=info,zenoh_transport=debug
+    ZENOH_ROUTER_CONFIG_URI: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
+  expose:
+  - targetPort: 7447
+  volumes:
+  - mountPath: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
+    configMapName: '{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) "DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5") }}'
+
+# endpoints is a list of endpoints the Zenoh router will connect to, e.g., `tcp/localhost:7447`
+endpoints: []
+
+# enableAccessControl enables the Zenoh router's access control list, which allows to specify which ROS topics, services and actions are allowed or denied by the router; if set to false, all topics, services and actions are allowed
+enableAccessControl: true
+
+# allowedRosTopics is a list of ROS topics that are allowed by the Zenoh router's access control list; all other topics are denied; if all of allowedRosTopics/Services/Actions are empty, no access control is applied
+allowedRosTopics: []
+
+# allowedRosServices is a list of ROS services that are allowed by the Zenoh router's access control list; all other services are denied; if all of allowedRosTopics/Services/Actions are empty, no access control is applied
+allowedRosServices: []
+
+# allowedRosActions is a list of ROS actions that are allowed by the Zenoh router's access control list; all other actions are denied; if all of allowedRosTopics/Services/Actions are empty, no access control is applied
+allowedRosActions: []

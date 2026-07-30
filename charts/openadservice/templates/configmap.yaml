@@ -1,0 +1,51 @@
+{{- if .Values.enable }}
+{{- if .Values.enableConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+{{- $name := include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := .Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+{{ tpl ((.Files.Glob "files/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5").AsConfig) $ | indent 2 }}
+---
+{{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
+apiVersion: v1
+kind: ConfigMap
+{{- $name := include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $.Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+  {{ .Values.rosParamFileMountPath | base | quote }}: |-
+{{ .Values.rosParamFileData | indent 4 }}
+---
+{{- end }}
+{{- range .Values.volumes }}
+{{- if and .data (not (empty (tpl .data $))) }}
+apiVersion: v1
+kind: ConfigMap
+{{- $name := include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $.Values.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+  {{ .mountPath | base | quote }}: |-
+{{ tpl .data $ | indent 4 }}
+---
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

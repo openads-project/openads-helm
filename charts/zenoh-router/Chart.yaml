@@ -1,0 +1,9 @@
+apiVersion: v2
+name: zenoh-router
+version: 1.8.0
+appVersion: 1.8.0
+description: Zenoh Router for ROS 2 RMW Zenoh
+dependencies:
+  - repository: oci://ghcr.io/openads-project/openads-helm
+    name: openadservice
+    version: 1.0.0

@@ -1,0 +1,34 @@
+name: ghcr-cleanup
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # every day at 00:00
+  workflow_dispatch:
+
+jobs:
+  ghcr-cleanup:
+    name: Cleanup ${{ matrix.chart }}
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        chart:
+          - openadservice
+          - zenoh-router
+    steps:
+      - name: Cleanup ${{ matrix.chart }}
+        uses: dataaxiom/ghcr-cleanup-action@v1.2.2
+        with:
+          packages: ${{ matrix.chart }}
+          dry-run: false
+          use-regex: true
+          skip-regex-checks: true
+          older-than: 1 month
+          exclude-tags: '^[0-9]+\.[0-9]+\.[0-9]+$' # 1.2.3
+          delete-tags: ".*"
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
+          delete-orphaned-images: true
+          validate: true
