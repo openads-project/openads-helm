@@ -24,6 +24,9 @@ This repository contains essential Helm charts for [***OpenADS***](https://opena
 
 ## 🚀 Usage
 
+> [!NOTE]  
+> Tested with Helm v3.19.0 and Helmfile v1.1.7.
+
 Helm charts are stored as OCI artifacts in the GitHub Container Registry and can be installed directly from there.
 
 ```bash
