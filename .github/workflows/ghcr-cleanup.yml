@@ -20,7 +20,7 @@ jobs:
       - name: Cleanup ${{ matrix.chart }}
         uses: dataaxiom/ghcr-cleanup-action@v1.2.2
         with:
-          packages: ${{ matrix.chart }}
+          packages: ${{ github.event.repository.name }}/${{ matrix.chart }}
           dry-run: false
           use-regex: true
           skip-regex-checks: true
