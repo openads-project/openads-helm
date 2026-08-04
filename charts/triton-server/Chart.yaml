@@ -1,0 +1,9 @@
+apiVersion: v2
+name: triton-server
+version: "26.01"
+appVersion: "26.01"
+description: NVIDIA Triton Inference Server
+dependencies:
+  - repository: oci://ghcr.io/openads-project/openads-helm
+    name: openadservice
+    version: 1.0.0
