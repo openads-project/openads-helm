@@ -1,7 +1,8 @@
 openadservice:
   name: zenoh-router
-  image: eclipse/zenoh:1.8.0
+  image: rwthika/ros2:jazzy-ros-base-alternative-rmw
   env:
+    RMW_IMPLEMENTATION: rmw_zenoh_cpp
     RUST_LOG: zenoh=info,zenoh_transport=debug
     ZENOH_ROUTER_CONFIG_URI: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
   expose:
