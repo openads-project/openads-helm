@@ -19,6 +19,7 @@ jobs:
       matrix:
         chart:
           - openadservice
+          - triton-server
           - zenoh-router
     steps:
       - name: Checkout repository
