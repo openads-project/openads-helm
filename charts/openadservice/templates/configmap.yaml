@@ -2,7 +2,7 @@
 {{- if .Values.enableConfigMap }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
+{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
 metadata:
   name: "{{ $name }}"
   labels:
@@ -16,7 +16,7 @@ data:
 {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}
+{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}
 metadata:
   name: "{{ $name }}"
   labels:
@@ -33,7 +33,7 @@ data:
 {{- if and .data (not (empty (tpl .data $))) }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}
+{{- $name := include "openadservice.inlineConfigMapName" (dict "root" $ "mountPath" .mountPath) }}
 metadata:
   name: "{{ $name }}"
   labels:
