@@ -5,6 +5,11 @@ openadservice:
     RMW_IMPLEMENTATION: rmw_zenoh_cpp
     RUST_LOG: zenoh=info,zenoh_transport=debug
     ZENOH_ROUTER_CONFIG_URI: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
+  args:
+  - ros2
+  - run
+  - rmw_zenoh_cpp
+  - rmw_zenohd
   expose:
   - targetPort: 7447
   volumes:
