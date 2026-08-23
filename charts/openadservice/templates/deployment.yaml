@@ -108,11 +108,16 @@ spec:
           subPath: "{{ .Values.rosParamFileMountPath | base }}"
         {{- end }}
         {{- range .Values.volumes }}
-        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName }}
+        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
         - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
           mountPath: "{{ .mountPath }}"
         {{- if or .data .configMapName }}
           subPath: "{{ .configMapKey | default (.mountPath | base) }}"
+        {{- else if .image }}
+        {{- with .imagePath }}
+          subPath: "{{ . }}"
+        {{- end }}
+          readOnly: true
         {{- end }}
         {{- end }}
         {{- end }}
@@ -146,7 +151,7 @@ spec:
           name: "{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
       {{- end }}
       {{- range .Values.volumes }}
-      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName }}
+      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
       - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
       {{- if .data }}
         configMap:
@@ -157,6 +162,10 @@ spec:
       {{- else if .hostPath }}
         hostPath:
           path: "{{ tpl .hostPath $ }}"
+      {{- else if .image }}
+        image:
+          reference: "{{ tpl .image $ }}"
+          pullPolicy: "{{ $.Values.imagePullPolicy }}"
       {{- end }}
       {{- end }}
       {{- end }}
