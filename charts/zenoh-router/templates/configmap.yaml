@@ -2,7 +2,7 @@
 {{- if .Values.openadservice.enableConfigMap }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "rfc1123CompliantName" (printf "%s-%s" (.Values.openadservice.name | default .Release.Name) ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
+{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.openadservice.name | default .Release.Name) ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
 metadata:
   name: "{{ $name }}"
   labels:

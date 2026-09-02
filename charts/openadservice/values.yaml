@@ -77,7 +77,7 @@ rosParamFileMountPath: null
 # rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
 rosParamFileData: null
 
-# volumes is a list of maps for hostPath, inline ConfigMap, or existing ConfigMap volumes
+# volumes is a list of maps for hostPath, inline or existing ConfigMap, or image volumes
 volumes: []
 # - mountPath:      # container mount path (for `hostPath` volumes)
 #   hostPath:       # host path
@@ -86,3 +86,6 @@ volumes: []
 # - mountPath:      # container mount path (for existing `configMap` volumes)
 #   configMapName:  # existing ConfigMap name
 #   configMapKey:   # optional key; defaults to the basename of mountPath
+# - mountPath:      # container mount path (for `image` volumes)
+#   image:          # OCI image reference
+#   imagePath:      # optional relative path inside the image

@@ -36,7 +36,7 @@ spec:
       {{- if or .Values.dependsOn .Values.initContainers }}
       initContainers:
       {{- range $dependency := .Values.dependsOn }}
-      - name: "{{ include "rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependency.host $dependency.port) }}"
+      - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependency.host $dependency.port) }}"
         image: busybox:1.36
         command:
           - sh
@@ -99,20 +99,25 @@ spec:
         - name: xauthority
           mountPath: /.Xauthority
         {{- end }}
-        - name: "{{ include "rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
+        - name: "{{ include "openadservice.rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
           mountPath: /opt/ros/jazzy/share/rmw_zenoh_cpp/config/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
           subPath: DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
         {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
-        - name: "{{ include "rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
+        - name: "{{ include "openadservice.rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
           mountPath: "{{ .Values.rosParamFileMountPath }}"
           subPath: "{{ .Values.rosParamFileMountPath | base }}"
         {{- end }}
         {{- range .Values.volumes }}
-        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName }}
-        - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
+        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
+        - name: "{{ include "openadservice.volumeName" .mountPath }}"
           mountPath: "{{ .mountPath }}"
         {{- if or .data .configMapName }}
           subPath: "{{ .configMapKey | default (.mountPath | base) }}"
+        {{- else if .image }}
+        {{- with .imagePath }}
+          subPath: "{{ . }}"
+        {{- end }}
+          readOnly: true
         {{- end }}
         {{- end }}
         {{- end }}
@@ -137,26 +142,30 @@ spec:
         hostPath:
           path: "{{ .Values.x11XauthorityFile }}"
       {{- end }}
-      - name: "{{ include "rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
+      - name: "{{ include "openadservice.rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
         configMap:
-          name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}"
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}"
       {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
-      - name: "{{ include "rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
+      - name: "{{ include "openadservice.rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
         configMap:
-          name: "{{ include "rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
       {{- end }}
       {{- range .Values.volumes }}
-      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName }}
-      - name: "{{ include "rfc1123CompliantName" (.mountPath | base) }}"
+      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
+      - name: "{{ include "openadservice.volumeName" .mountPath }}"
       {{- if .data }}
         configMap:
-          name: "{{ include "rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) (.mountPath | base)) }}"
+          name: "{{ include "openadservice.inlineConfigMapName" (dict "root" $ "mountPath" .mountPath) }}"
       {{- else if .configMapName }}
         configMap:
           name: "{{ tpl .configMapName $ }}"
       {{- else if .hostPath }}
         hostPath:
           path: "{{ tpl .hostPath $ }}"
+      {{- else if .image }}
+        image:
+          reference: "{{ tpl .image $ }}"
+          pullPolicy: "{{ $.Values.imagePullPolicy }}"
       {{- end }}
       {{- end }}
       {{- end }}

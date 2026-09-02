@@ -15,9 +15,7 @@ openadservice:
   - targetPort: 8000
   - targetPort: 8001
   - targetPort: 8002
-  volumes:
-  - mountPath: /models
-    hostPath: "{{ .Values.tritonServerModelsHostPath }}"
-
-  # tritonModelsHostPath is the host path where models are stored, to be mounted into the container
-  tritonServerModelsHostPath: null
+  # volumes:
+  # - mountPath: /models
+  #   imagePath: models
+  #   image: ghcr.io/openads-project/point_cloud_object_detection/model:v1.0.0
