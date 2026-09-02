@@ -3,7 +3,7 @@
 {{- if .Values.ports }}
 apiVersion: v1
 kind: Service
-{{- $name := .Values.name | default .Release.Name }}-external }}
+{{- $name := printf "%s-external" (.Values.name | default .Release.Name) }}
 metadata:
   name: "{{ $name }}"
   labels:
