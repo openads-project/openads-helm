@@ -6,4 +6,4 @@ description: NVIDIA Triton Inference Server
 dependencies:
   - repository: oci://ghcr.io/openads-project/openads-helm
     name: openadservice
-    version: 1.0.0
+    version: 1.0.1
