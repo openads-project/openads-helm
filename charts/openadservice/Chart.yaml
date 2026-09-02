@@ -1,4 +1,4 @@
 apiVersion: v2
 name: openadservice
-version: 1.0.0
+version: 1.0.1
 description: OpenADService base chart providing common structure and configuration
