@@ -1,13 +1,21 @@
-{{- if .Values.enable }}
-{{- if .Values.enableDeployment }}
+{{- $hasInstances := gt (len .Values.instances) 0 }}
+{{- $instances := .Values.instances | default (list (dict)) }}
+{{- range $idx, $instance := $instances }}
+{{- $values := mergeOverwrite (deepCopy $.Values) $instance }}
+{{- if and $values.enable $values.enableDeployment }}
+{{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
 apiVersion: apps/v1
 kind: Deployment
-{{- $name := .Values.name | default .Release.Name }}
+{{- $defaultName := $.Release.Name }}
+{{- if and $hasInstances (not $values.name) }}
+{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
+{{- end }}
+{{- $name := $values.name | default $defaultName }}
 metadata:
   name: "{{ $name }}"
   labels:
     app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := .Values.labels }}
+    {{- range $key, $value := $values.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 spec:
@@ -19,23 +27,39 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: "{{ $name }}"
-        {{- range $key, $value := .Values.labels }}
+        {{- range $key, $value := $values.labels }}
         {{ $key }}: {{ $value | quote }}
         {{- end }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with $values.imagePullSecrets }}
       imagePullSecrets:
       {{- range . }}
       - name: "{{ . }}"
       {{- end }}
       {{- end }}
       terminationGracePeriodSeconds: 1
-      {{- if .Values.gpu }}
+      {{- if $values.gpu }}
       runtimeClassName: nvidia
       {{- end }}
-      {{- if or .Values.dependsOn .Values.initContainers }}
+      {{- with $values.nodeSelector }}
+      nodeSelector:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.affinity }}
+      affinity:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or $values.dependsOn $values.initContainers }}
       initContainers:
-      {{- range $dependency := .Values.dependsOn }}
+      {{- range $dependency := $values.dependsOn }}
       - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependency.host $dependency.port) }}"
         image: busybox:1.36
         command:
@@ -45,42 +69,42 @@ spec:
             until nc -z {{ $dependency.host }} {{ $dependency.port }};
             do echo "waiting for '{{ $dependency.host }}:{{ $dependency.port }}'"; sleep 1; done
       {{- end }}
-      {{- with .Values.initContainers }}
+      {{- with $values.initContainers }}
       {{ toYaml . | nindent 8 }}
       {{- end }}
       {{- end }}
       containers:
       - name: "{{ $name }}"
-        image: "{{ .Values.image }}"
-        imagePullPolicy: "{{ .Values.imagePullPolicy }}"
-        {{- with .Values.command }}
+        image: "{{ $values.image }}"
+        imagePullPolicy: "{{ $values.imagePullPolicy }}"
+        {{- with $values.command }}
         command:
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- with .Values.args }}
+        {{- with $values.args }}
         args:
         {{- toYaml . | nindent 8 }}
         {{- end }}
-        {{- if .Values.shm }}
+        {{- if $values.shm }}
         securityContext:
           capabilities:
             add:
             - IPC_LOCK
         {{- end }}
         env:
-        {{- if .Values.gpu }}
+        {{- if $values.gpu }}
         - name: NVIDIA_VISIBLE_DEVICES
           value: "all"
         - name: NVIDIA_DRIVER_CAPABILITIES
           value: "all"
         {{- end }}
-        {{- if .Values.x11Display }}
+        {{- if $values.x11Display }}
         - name: DISPLAY
-          value: "{{ .Values.x11Display }}"
+          value: "{{ $values.x11Display }}"
         - name: XAUTHORITY
           value: /.Xauthority
         {{- end }}
-        {{- range $key, $value := .Values.env }}
+        {{- range $key, $value := $values.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
@@ -89,11 +113,11 @@ spec:
           mountPath: /etc/timezone
         - name: localtime
           mountPath: /etc/localtime
-        {{- if .Values.shm }}
+        {{- if $values.shm }}
         - name: shared-memory
           mountPath: /dev/shm
         {{- end }}
-        {{- if .Values.x11XauthorityFile }}
+        {{- if $values.x11XauthorityFile }}
         - name: x11-unix
           mountPath: /tmp/.X11-unix
         - name: xauthority
@@ -102,13 +126,13 @@ spec:
         - name: "{{ include "openadservice.rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
           mountPath: /opt/ros/jazzy/share/rmw_zenoh_cpp/config/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
           subPath: DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
-        {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
-        - name: "{{ include "openadservice.rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
-          mountPath: "{{ .Values.rosParamFileMountPath }}"
-          subPath: "{{ .Values.rosParamFileMountPath | base }}"
+        {{- if and $values.rosParamFileMountPath $values.rosParamFileData }}
+        - name: "{{ include "openadservice.rfc1123CompliantName" ($values.rosParamFileMountPath | base) }}"
+          mountPath: "{{ $values.rosParamFileMountPath }}"
+          subPath: "{{ $values.rosParamFileMountPath | base }}"
         {{- end }}
-        {{- range .Values.volumes }}
-        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
+        {{- range $values.volumes }}
+        {{- if or (and .data (not (empty (tpl .data $ctx)))) .hostPath .configMapName .image }}
         - name: "{{ include "openadservice.volumeName" .mountPath }}"
           mountPath: "{{ .mountPath }}"
         {{- if or .data .configMapName }}
@@ -120,7 +144,6 @@ spec:
           readOnly: true
         {{- end }}
         {{- end }}
-        {{- end }}
       volumes:
       - name: timezone
         hostPath:
@@ -128,46 +151,48 @@ spec:
       - name: localtime
         hostPath:
           path: /etc/localtime
-      {{- if .Values.shm }}
+      {{- if $values.shm }}
       - name: shared-memory
         hostPath:
           path: /dev/shm
           type: Directory
       {{- end }}
-      {{- if .Values.x11XauthorityFile }}
+      {{- if $values.x11XauthorityFile }}
       - name: x11-unix
         hostPath:
           path: /tmp/.X11-unix
       - name: xauthority
         hostPath:
-          path: "{{ .Values.x11XauthorityFile }}"
+          path: "{{ $values.x11XauthorityFile }}"
       {{- end }}
       - name: "{{ include "openadservice.rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
         configMap:
-          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}"
-      {{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
-      - name: "{{ include "openadservice.rfc1123CompliantName" (.Values.rosParamFileMountPath | base) }}"
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}"
+      {{- if and $values.rosParamFileMountPath $values.rosParamFileData }}
+      - name: "{{ include "openadservice.rfc1123CompliantName" ($values.rosParamFileMountPath | base) }}"
         configMap:
-          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ($values.rosParamFileMountPath | base)) }}"
       {{- end }}
-      {{- range .Values.volumes }}
-      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
+      {{- range $values.volumes }}
+      {{- if or (and .data (not (empty (tpl .data $ctx)))) .hostPath .configMapName .image }}
       - name: "{{ include "openadservice.volumeName" .mountPath }}"
       {{- if .data }}
         configMap:
-          name: "{{ include "openadservice.inlineConfigMapName" (dict "root" $ "mountPath" .mountPath) }}"
+          name: "{{ include "openadservice.inlineConfigMapName" (dict "root" $ctx "mountPath" .mountPath) }}"
       {{- else if .configMapName }}
         configMap:
-          name: "{{ tpl .configMapName $ }}"
+          name: "{{ tpl .configMapName $ctx }}"
       {{- else if .hostPath }}
         hostPath:
-          path: "{{ tpl .hostPath $ }}"
+          path: "{{ tpl .hostPath $ctx }}"
       {{- else if .image }}
         image:
-          reference: "{{ tpl .image $ }}"
-          pullPolicy: "{{ $.Values.imagePullPolicy }}"
+          reference: "{{ tpl .image $ctx }}"
+          pullPolicy: "{{ $values.imagePullPolicy }}"
       {{- end }}
       {{- end }}
       {{- end }}
+---
+{{- end }}
 {{- end }}
 {{- end }}
