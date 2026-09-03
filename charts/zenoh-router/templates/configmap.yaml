@@ -1,17 +1,27 @@
-{{- if .Values.openadservice.enable }}
-{{- if .Values.openadservice.enableConfigMap }}
+{{- $instancesValue := .Values.openadservice.instances | default (list) }}
+{{- $hasInstances := gt (len $instancesValue) 0 }}
+{{- $instances := $instancesValue | default (list (dict)) }}
+{{- range $idx, $instance := $instances }}
+{{- $openadserviceValues := mergeOverwrite (deepCopy $.Values.openadservice) $instance }}
+{{- if and $openadserviceValues.enable $openadserviceValues.enableConfigMap }}
+{{- $ctx := dict "Values" (mergeOverwrite (deepCopy $.Values) (dict "openadservice" $openadserviceValues)) "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
+{{- $defaultName := $.Release.Name }}
+{{- if and $hasInstances (not $openadserviceValues.name) }}
+{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
+{{- end }}
+{{- $name := $openadserviceValues.name | default $defaultName }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.openadservice.name | default .Release.Name) ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
+{{- $routerConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $routerConfigMapName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := .Values.openadservice.labels }}
+    app.kubernetes.io/name: "{{ $routerConfigMapName }}"
+    {{- range $key, $value := $openadserviceValues.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-{{ tpl ((.Files.Glob "files/DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5").AsConfig) $ | indent 2 }}
+{{ tpl (($.Files.Glob "files/DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5").AsConfig) $ctx | indent 2 }}
 ---
 {{- end }}
 {{- end }}

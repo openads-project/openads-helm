@@ -1,49 +1,58 @@
-{{- if .Values.enable }}
-{{- if .Values.enableConfigMap }}
+{{- $hasInstances := gt (len .Values.instances) 0 }}
+{{- $instances := .Values.instances | default (list (dict)) }}
+{{- range $idx, $instance := $instances }}
+{{- $values := mergeOverwrite (deepCopy $.Values) $instance }}
+{{- if and $values.enable $values.enableConfigMap }}
+{{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
+{{- $defaultName := $.Release.Name }}
+{{- if and $hasInstances (not $values.name) }}
+{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
+{{- end }}
+{{- $name := $values.name | default $defaultName }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" ($.Values.name | default $.Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
+{{- $sessionConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $sessionConfigMapName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := .Values.labels }}
+    app.kubernetes.io/name: "{{ $sessionConfigMapName }}"
+    {{- range $key, $value := $values.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-{{ tpl ((.Files.Glob "files/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5").AsConfig) $ | indent 2 }}
+{{ tpl (($.Files.Glob "files/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5").AsConfig) $ctx | indent 2 }}
 ---
-{{- if and .Values.rosParamFileMountPath .Values.rosParamFileData }}
+{{- if and $values.rosParamFileMountPath $values.rosParamFileData }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}
+{{- $rosParamConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ($values.rosParamFileMountPath | base)) }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $rosParamConfigMapName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := $.Values.labels }}
+    app.kubernetes.io/name: "{{ $rosParamConfigMapName }}"
+    {{- range $key, $value := $values.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-  {{ .Values.rosParamFileMountPath | base | quote }}: |-
-{{ .Values.rosParamFileData | indent 4 }}
+  {{ $values.rosParamFileMountPath | base | quote }}: |-
+{{ $values.rosParamFileData | indent 4 }}
 ---
 {{- end }}
-{{- range .Values.volumes }}
-{{- if and .data (not (empty (tpl .data $))) }}
+{{- range $values.volumes }}
+{{- if and .data (not (empty (tpl .data $ctx))) }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "openadservice.inlineConfigMapName" (dict "root" $ "mountPath" .mountPath) }}
+{{- $inlineConfigMapName := include "openadservice.inlineConfigMapName" (dict "root" $ctx "mountPath" .mountPath) }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $inlineConfigMapName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := $.Values.labels }}
+    app.kubernetes.io/name: "{{ $inlineConfigMapName }}"
+    {{- range $key, $value := $values.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
   {{ .mountPath | base | quote }}: |-
-{{ tpl .data $ | indent 4 }}
+{{ tpl .data $ctx | indent 4 }}
 ---
 {{- end }}
 {{- end }}

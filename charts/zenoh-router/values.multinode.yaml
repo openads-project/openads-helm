@@ -1,0 +1,46 @@
+openadservice:
+  image: rwthika/ros2:jazzy-ros-base-alternative-rmw
+  args:
+  - ros2
+  - run
+  - rmw_zenoh_cpp
+  - rmw_zenohd
+  env:
+    RMW_IMPLEMENTATION: rmw_zenoh_cpp
+    RUST_LOG: zenoh=info,zenoh_transport=debug
+    ZENOH_ROUTER_CONFIG_URI: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
+  volumes:
+  - mountPath: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
+    configMapName: '{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) "DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5") }}'
+  instances:
+  - name: zenoh-router-node-a
+    nodeSelector:
+      kubernetes.io/hostname: worker-a
+    env:
+      ZENOH_NODE_ID: node-a
+      ZENOH_LISTEN_PORT: "7447"
+    expose:
+    - targetPort: 7447
+      port: 7447
+  - name: zenoh-router-node-b
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - worker-b
+    env:
+      ZENOH_NODE_ID: node-b
+      ZENOH_LISTEN_PORT: "7448"
+    expose:
+    - targetPort: 7448
+      port: 7448
+
+endpoints: []
+enableAccessControl: true
+allowedRosTopics: []
+allowedRosServices: []
+allowedRosActions: []

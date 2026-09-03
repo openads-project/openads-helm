@@ -16,6 +16,26 @@ name: null
 # labels is a map of labels to add to the deployment and other resources
 labels: {}
 
+# instances is an optional list of per-instance value overrides.
+# Each list item creates its own Deployment/Service/ConfigMaps.
+# If empty, the chart renders a single instance using the top-level values (backward compatible).
+# instances:
+# - name: my-service-node-a
+#   nodeSelector:
+#     kubernetes.io/hostname: worker-a
+#   env:
+#     MY_VAR: value-a
+#   expose:
+#   - targetPort: 7447
+# - name: my-service-node-b
+#   nodeSelector:
+#     kubernetes.io/hostname: worker-b
+#   env:
+#     MY_VAR: value-b
+#   expose:
+#   - targetPort: 7448
+instances: []
+
 # image is the container image name including tag
 image: rwthika/ros2:latest
 
@@ -50,6 +70,18 @@ dependsOn: []
 
 # initContainers is a list of init container specs to add to the pod
 initContainers: []
+
+# nodeSelector is a map of node labels for pod scheduling
+nodeSelector: {}
+
+# affinity configures pod scheduling affinity/anti-affinity rules
+affinity: {}
+
+# tolerations configures pod tolerations
+tolerations: []
+
+# topologySpreadConstraints configures pod topology spread constraints
+topologySpreadConstraints: []
 
 # ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
 ports: []
