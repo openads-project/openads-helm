@@ -1,52 +1,60 @@
-{{- if .Values.enable }}
-{{- if .Values.enableService }}
-{{- if .Values.ports }}
+{{- $hasInstances := gt (len .Values.instances) 0 }}
+{{- $instances := .Values.instances | default (list (dict)) }}
+{{- range $idx, $instance := $instances }}
+{{- $values := mergeOverwrite (deepCopy $.Values) $instance }}
+{{- if and $values.enable $values.enableService }}
+{{- $defaultName := $.Release.Name }}
+{{- if and $hasInstances (not $values.name) }}
+{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
+{{- end }}
+{{- $name := $values.name | default $defaultName }}
+{{- if $values.ports }}
 apiVersion: v1
 kind: Service
-{{- $name := printf "%s-external" (.Values.name | default .Release.Name) }}
+{{- $externalName := printf "%s-external" $name }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $externalName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := .Values.labels }}
+    app.kubernetes.io/name: "{{ $externalName }}"
+    {{- range $key, $value := $values.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 spec:
   selector:
-    app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+    app.kubernetes.io/name: "{{ $name }}"
   type: NodePort
   ports:
-    {{- range .Values.ports }}
+    {{- range $values.ports }}
     - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
       nodePort: {{ .nodePort }}
       port: {{ .port | default .targetPort }}
       targetPort: {{ .targetPort }}
       protocol: "{{ .protocol | default "TCP" }}"
     {{- end }}
-{{- end }}
 ---
-{{- if .Values.expose }}
+{{- end }}
+{{- if $values.expose }}
 apiVersion: v1
 kind: Service
-{{- $name := .Values.name | default .Release.Name }}
 metadata:
   name: "{{ $name }}"
   labels:
     app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := .Values.labels }}
+    {{- range $key, $value := $values.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 spec:
   selector:
-    app.kubernetes.io/name: "{{ .Values.name | default .Release.Name }}"
+    app.kubernetes.io/name: "{{ $name }}"
   type: ClusterIP
   ports:
-    {{- range .Values.expose }}
+    {{- range $values.expose }}
     - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
       port: {{ .port | default .targetPort }}
       targetPort: {{ .targetPort }}
       protocol: "{{ .protocol | default "TCP" }}"
     {{- end }}
+---
 {{- end }}
 {{- end }}
 {{- end }}
