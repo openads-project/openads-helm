@@ -77,7 +77,7 @@ rosParamFileMountPath: null
 # rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
 rosParamFileData: null
 
-# volumes is a list of maps for hostPath, inline or existing ConfigMap, or image volumes
+# volumes is a list of maps for hostPath, inline or existing ConfigMap, image, or MinIO volumes
 volumes: []
 # - mountPath:      # container mount path (for `hostPath` volumes)
 #   hostPath:       # host path
@@ -89,3 +89,13 @@ volumes: []
 # - mountPath:      # container mount path (for `image` volumes)
 #   image:          # OCI image reference
 #   imagePath:      # optional relative path inside the image
+# - mountPath:      # container mount path (for `minio` volumes)
+#   minio:
+#     host:         # MinIO/S3-compatible endpoint without protocol (HTTP is used)
+#     targets:
+#     - sourcePath: # object path including bucket; trailing slash downloads recursively
+#       targetPath: # destination path relative to mountPath
+#     credentials:  # use secretName or accessKey and secretKey; secretName takes precedence
+#       secretName: # existing Secret with MINIO_ACCESS_KEY and MINIO_SECRET_KEY
+#       accessKey:  # inline access key (prefer secretName)
+#       secretKey:  # inline secret key (prefer secretName)
