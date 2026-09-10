@@ -37,7 +37,8 @@ gpu: false
 # x11Display is the value of the `DISPLAY` environment variable needed for X11 GUI forwarding
 x11Display: null
 
-# x11XauthorityFile is the host path to the Xauthority file needed for X11 GUI forwarding
+# x11XauthorityFile is the optional host path to an Xauthority file. When set,
+# it is mounted at /.Xauthority and the XAUTHORITY environment variable is set.
 x11XauthorityFile: null
 
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)

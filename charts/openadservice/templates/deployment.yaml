@@ -86,6 +86,8 @@ spec:
         {{- if .Values.x11Display }}
         - name: DISPLAY
           value: "{{ .Values.x11Display }}"
+        {{- end }}
+        {{- if .Values.x11XauthorityFile }}
         - name: XAUTHORITY
           value: /.Xauthority
         {{- end }}
@@ -102,9 +104,11 @@ spec:
         - name: shared-memory
           mountPath: /dev/shm
         {{- end }}
-        {{- if .Values.x11XauthorityFile }}
+        {{- if or .Values.x11Display .Values.x11XauthorityFile }}
         - name: x11-unix
           mountPath: /tmp/.X11-unix
+        {{- end }}
+        {{- if .Values.x11XauthorityFile }}
         - name: xauthority
           mountPath: /.Xauthority
         {{- end }}
@@ -143,10 +147,12 @@ spec:
           path: /dev/shm
           type: Directory
       {{- end }}
-      {{- if .Values.x11XauthorityFile }}
+      {{- if or .Values.x11Display .Values.x11XauthorityFile }}
       - name: x11-unix
         hostPath:
           path: /tmp/.X11-unix
+      {{- end }}
+      {{- if .Values.x11XauthorityFile }}
       - name: xauthority
         hostPath:
           path: "{{ .Values.x11XauthorityFile }}"
