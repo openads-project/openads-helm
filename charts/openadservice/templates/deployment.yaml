@@ -42,7 +42,7 @@ spec:
           - sh
           - -ec
           - >
-            until nc -z {{ $dependency.host }} {{ $dependency.port }};
+            until nc -z -w 1 {{ $dependency.host }} {{ $dependency.port }};
             do echo "waiting for '{{ $dependency.host }}:{{ $dependency.port }}'"; sleep 1; done
       {{- end }}
       {{- with .Values.initContainers }}
