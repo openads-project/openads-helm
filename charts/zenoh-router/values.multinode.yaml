@@ -13,31 +13,26 @@ openadservice:
   - mountPath: /DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5
     configMapName: '{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) "DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5") }}'
   instances:
-  - name: zenoh-router-node-a
-    nodeSelector:
-      kubernetes.io/hostname: worker-a
-    env:
-      ZENOH_NODE_ID: node-a
-      ZENOH_LISTEN_PORT: "7447"
-    expose:
-    - targetPort: 7447
-      port: 7447
-  - name: zenoh-router-node-b
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-          - matchExpressions:
-            - key: kubernetes.io/hostname
-              operator: In
-              values:
-              - worker-b
-    env:
-      ZENOH_NODE_ID: node-b
-      ZENOH_LISTEN_PORT: "7448"
-    expose:
-    - targetPort: 7448
-      port: 7448
+    node-a:
+      nodeSelector:
+        kubernetes.io/hostname: worker-a
+      zenoh:
+        configOverrides:
+          listen/endpoints:
+          - tcp/[::]:7447
+      expose:
+      - targetPort: 7447
+        port: 7447
+    node-b:
+      nodeSelector:
+        kubernetes.io/hostname: worker-b
+      zenoh:
+        configOverrides:
+          listen/endpoints:
+          - tcp/[::]:7448
+      expose:
+      - targetPort: 7448
+        port: 7448
 
 endpoints: []
 enableAccessControl: true

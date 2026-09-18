@@ -1,14 +1,12 @@
 {{- $hasInstances := gt (len .Values.instances) 0 }}
-{{- $instances := .Values.instances | default (list (dict)) }}
-{{- range $idx, $instance := $instances }}
+{{- $instances := .Values.instances | default (dict "" (dict)) }}
+{{- range $instanceKey, $instance := $instances }}
 {{- $values := mergeOverwrite (deepCopy $.Values) $instance }}
+{{- $baseName := include "openadservice.baseName" (dict "name" $.Values.name "releaseName" $.Release.Name "namePrefix" $.Values.namePrefix) }}
+{{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
+{{- $_ := set $values "name" $name }}
 {{- if and $values.enable $values.enableConfigMap }}
 {{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
-{{- $defaultName := $.Release.Name }}
-{{- if and $hasInstances (not $values.name) }}
-{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
-{{- end }}
-{{- $name := $values.name | default $defaultName }}
 apiVersion: v1
 kind: ConfigMap
 {{- $sessionConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
@@ -35,7 +33,7 @@ metadata:
     {{- end }}
 data:
   {{ $values.rosParamFileMountPath | base | quote }}: |-
-{{ $values.rosParamFileData | indent 4 }}
+{{ tpl $values.rosParamFileData $ctx | indent 4 }}
 ---
 {{- end }}
 {{- range $values.volumes }}

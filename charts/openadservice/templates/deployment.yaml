@@ -1,16 +1,14 @@
 {{- $hasInstances := gt (len .Values.instances) 0 }}
-{{- $instances := .Values.instances | default (list (dict)) }}
-{{- range $idx, $instance := $instances }}
+{{- $instances := .Values.instances | default (dict "" (dict)) }}
+{{- range $instanceKey, $instance := $instances }}
 {{- $values := mergeOverwrite (deepCopy $.Values) $instance }}
+{{- $baseName := include "openadservice.baseName" (dict "name" $.Values.name "releaseName" $.Release.Name "namePrefix" $.Values.namePrefix) }}
+{{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
+{{- $_ := set $values "name" $name }}
 {{- if and $values.enable $values.enableDeployment }}
 {{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
 apiVersion: apps/v1
 kind: Deployment
-{{- $defaultName := $.Release.Name }}
-{{- if and $hasInstances (not $values.name) }}
-{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
-{{- end }}
-{{- $name := $values.name | default $defaultName }}
 metadata:
   name: "{{ $name }}"
   labels:
@@ -91,6 +89,13 @@ spec:
             add:
             - IPC_LOCK
         {{- end }}
+        {{- $zenohConfigOverrides := list }}
+        {{- range $key, $value := $values.zenoh.configOverrides }}
+        {{- $zenohConfigOverrides = append $zenohConfigOverrides (printf "%s=%s" $key (toJson $value)) }}
+        {{- end }}
+        {{- with (get $values.env "ZENOH_CONFIG_OVERRIDE") }}
+        {{- $zenohConfigOverrides = append $zenohConfigOverrides . }}
+        {{- end }}
         env:
         {{- if $values.gpu }}
         - name: NVIDIA_VISIBLE_DEVICES
@@ -104,9 +109,15 @@ spec:
         - name: XAUTHORITY
           value: /.Xauthority
         {{- end }}
+        {{- if $zenohConfigOverrides }}
+        - name: ZENOH_CONFIG_OVERRIDE
+          value: {{ join ";" $zenohConfigOverrides | quote }}
+        {{- end }}
         {{- range $key, $value := $values.env }}
+        {{- if ne $key "ZENOH_CONFIG_OVERRIDE" }}
         - name: {{ $key }}
           value: {{ $value | quote }}
+        {{- end }}
         {{- end }}
         volumeMounts:
         - name: timezone

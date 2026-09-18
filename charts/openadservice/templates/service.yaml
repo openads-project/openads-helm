@@ -1,13 +1,10 @@
 {{- $hasInstances := gt (len .Values.instances) 0 }}
-{{- $instances := .Values.instances | default (list (dict)) }}
-{{- range $idx, $instance := $instances }}
+{{- $instances := .Values.instances | default (dict "" (dict)) }}
+{{- range $instanceKey, $instance := $instances }}
 {{- $values := mergeOverwrite (deepCopy $.Values) $instance }}
+{{- $baseName := include "openadservice.baseName" (dict "name" $.Values.name "releaseName" $.Release.Name "namePrefix" $.Values.namePrefix) }}
+{{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
 {{- if and $values.enable $values.enableService }}
-{{- $defaultName := $.Release.Name }}
-{{- if and $hasInstances (not $values.name) }}
-{{- $defaultName = printf "%s-%d" $.Release.Name $idx }}
-{{- end }}
-{{- $name := $values.name | default $defaultName }}
 {{- if $values.ports }}
 apiVersion: v1
 kind: Service
