@@ -3,6 +3,12 @@
 apiVersion: apps/v1
 kind: Deployment
 {{- $name := .Values.name | default .Release.Name }}
+{{- $minioVolumes := list }}
+{{- range .Values.volumes }}
+{{- if .minio }}
+{{- $minioVolumes = append $minioVolumes . }}
+{{- end }}
+{{- end }}
 metadata:
   name: "{{ $name }}"
   labels:
@@ -33,7 +39,7 @@ spec:
       {{- if .Values.gpu }}
       runtimeClassName: nvidia
       {{- end }}
-      {{- if or .Values.dependsOn .Values.initContainers }}
+      {{- if or .Values.dependsOn .Values.initContainers $minioVolumes }}
       initContainers:
       {{- range $dependency := .Values.dependsOn }}
       - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependency.host $dependency.port) }}"
@@ -45,8 +51,11 @@ spec:
             until nc -z -w 1 {{ $dependency.host }} {{ $dependency.port }};
             do echo "waiting for '{{ $dependency.host }}:{{ $dependency.port }}'"; sleep 1; done
       {{- end }}
+      {{- range $minioVolumes }}
+{{- include "openadservice.minioDownloadInitContainer" (dict "root" $ "volume" .) | nindent 6 }}
+      {{- end }}
       {{- with .Values.initContainers }}
-      {{ toYaml . | nindent 8 }}
+      {{ toYaml . | nindent 6 }}
       {{- end }}
       {{- end }}
       containers:
@@ -77,6 +86,8 @@ spec:
         {{- if .Values.x11Display }}
         - name: DISPLAY
           value: "{{ .Values.x11Display }}"
+        {{- end }}
+        {{- if .Values.x11XauthorityFile }}
         - name: XAUTHORITY
           value: /.Xauthority
         {{- end }}
@@ -93,9 +104,11 @@ spec:
         - name: shared-memory
           mountPath: /dev/shm
         {{- end }}
-        {{- if .Values.x11XauthorityFile }}
+        {{- if or .Values.x11Display .Values.x11XauthorityFile }}
         - name: x11-unix
           mountPath: /tmp/.X11-unix
+        {{- end }}
+        {{- if .Values.x11XauthorityFile }}
         - name: xauthority
           mountPath: /.Xauthority
         {{- end }}
@@ -108,7 +121,7 @@ spec:
           subPath: "{{ .Values.rosParamFileMountPath | base }}"
         {{- end }}
         {{- range .Values.volumes }}
-        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
+        {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image .minio }}
         - name: "{{ include "openadservice.volumeName" .mountPath }}"
           mountPath: "{{ .mountPath }}"
         {{- if or .data .configMapName }}
@@ -134,10 +147,12 @@ spec:
           path: /dev/shm
           type: Directory
       {{- end }}
-      {{- if .Values.x11XauthorityFile }}
+      {{- if or .Values.x11Display .Values.x11XauthorityFile }}
       - name: x11-unix
         hostPath:
           path: /tmp/.X11-unix
+      {{- end }}
+      {{- if .Values.x11XauthorityFile }}
       - name: xauthority
         hostPath:
           path: "{{ .Values.x11XauthorityFile }}"
@@ -151,7 +166,7 @@ spec:
           name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.name | default .Release.Name) (.Values.rosParamFileMountPath | base)) }}"
       {{- end }}
       {{- range .Values.volumes }}
-      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image }}
+      {{- if or (and .data (not (empty (tpl .data $)))) .hostPath .configMapName .image .minio }}
       - name: "{{ include "openadservice.volumeName" .mountPath }}"
       {{- if .data }}
         configMap:
@@ -166,6 +181,8 @@ spec:
         image:
           reference: "{{ tpl .image $ }}"
           pullPolicy: "{{ $.Values.imagePullPolicy }}"
+      {{- else if .minio }}
+        emptyDir: {}
       {{- end }}
       {{- end }}
       {{- end }}
