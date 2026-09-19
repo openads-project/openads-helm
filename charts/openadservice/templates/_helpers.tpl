@@ -3,7 +3,48 @@ normalizes a string into an RFC 1123 compliant Kubernetes resource name
 example: "My_Service.Config" becomes "my-service-config"
 */}}
 {{- define "openadservice.rfc1123CompliantName" -}}
-{{- printf "%s" . | lower | replace "_" "-" | replace "." "-" | trunc 63 | trimPrefix "-" | trimSuffix "-" -}}
+{{- $rawName := printf "%s" . | lower | replace "_" "-" | replace "." "-" -}}
+{{- $name := regexReplaceAll "[^a-z0-9-]+" $rawName "-" | trimAll "-" -}}
+{{- if gt (len $name) 63 -}}
+{{- printf "%s-%s" ($name | trunc 54 | trimSuffix "-") (sha256sum $name | trunc 8) -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+prefixes and normalizes a name, unless it already contains the prefix
+*/}}
+{{- define "openadservice.prefixedName" -}}
+{{- $name := include "openadservice.rfc1123CompliantName" .name -}}
+{{- $prefix := .namePrefix | default "" -}}
+{{- $prefix = include "openadservice.rfc1123CompliantName" $prefix -}}
+{{- if and $prefix (ne $name $prefix) (not (hasPrefix (printf "%s-" $prefix) $name)) -}}
+{{- include "openadservice.rfc1123CompliantName" (printf "%s-%s" $prefix $name) -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+creates the effective base name for a release
+*/}}
+{{- define "openadservice.baseName" -}}
+{{- include "openadservice.prefixedName" (dict "name" (.name | default .releaseName) "namePrefix" .namePrefix) -}}
+{{- end -}}
+
+{{/*
+appends the required instance key to a base name
+*/}}
+{{- define "openadservice.instanceName" -}}
+{{- if .hasInstances -}}
+{{- if empty .instanceKey -}}
+{{- fail "openadservice.instances keys must not be empty" -}}
+{{- end -}}
+{{- include "openadservice.rfc1123CompliantName" (printf "%s-%s" .baseName .instanceKey) -}}
+{{- else -}}
+{{- .baseName -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

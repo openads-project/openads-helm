@@ -13,8 +13,31 @@ enableService: true
 # name is the main name of deployment and container and also prefixes other resource names
 name: null
 
+# namePrefix prefixes chart-owned Kubernetes resources
+namePrefix: ""
+
 # labels is a map of labels to add to the deployment and other resources
 labels: {}
+
+# instances is an optional map of per-instance value overrides.
+# Each map entry creates its own Deployment/Service/ConfigMaps and its key is appended to the base name.
+# If empty, the chart renders a single instance using the top-level values (backward compatible).
+# instances:
+#   node-a:
+#     nodeSelector:
+#       kubernetes.io/hostname: worker-a
+#     env:
+#       MY_VAR: value-a
+#     expose:
+#     - targetPort: 7447
+#   node-b:
+#     nodeSelector:
+#       kubernetes.io/hostname: worker-b
+#     env:
+#       MY_VAR: value-b
+#     expose:
+#     - targetPort: 7448
+instances: {}
 
 # image is the container image name including tag
 image: rwthika/ros2:latest
@@ -51,6 +74,18 @@ dependsOn: []
 # initContainers is a list of init container specs to add to the pod
 initContainers: []
 
+# nodeSelector is a map of node labels for pod scheduling
+nodeSelector: {}
+
+# affinity configures pod scheduling affinity/anti-affinity rules
+affinity: {}
+
+# tolerations configures pod tolerations
+tolerations: []
+
+# topologySpreadConstraints configures pod topology spread constraints
+topologySpreadConstraints: []
+
 # ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
 ports: []
 # - port:         # source port (defaults to `targetPort` if not specified)
@@ -69,12 +104,25 @@ env:
   ROS_DOMAIN_ID: 0
   RMW_IMPLEMENTATION: rmw_zenoh_cpp
   RUST_LOG: zenoh=warn
-  ZENOH_ROUTER_CHECK_ATTEMPS: 0
+  ZENOH_ROUTER_CHECK_ATTEMPTS: 0
+
+# zenoh configures the RMW Zenoh session used by the service.
+zenoh:
+  # router is the Zenoh router endpoint to which the session connects.
+  router:
+    host: zenoh-router
+    port: 7447
+  # configOverrides maps Zenoh configuration paths to values. They are rendered into ZENOH_CONFIG_OVERRIDE.
+  # A raw env.ZENOH_CONFIG_OVERRIDE can still be used and is appended after these structured overrides.
+  # configOverrides:
+  #   scouting/multicast/enabled: false
+  configOverrides: {}
 
 # rosParamFileMountPath is the container mount path for the standard ROS parameter file
 rosParamFileMountPath: null
 
-# rosParamFileData is the content of the standard ROS parameter file to be mounted as ConfigMap
+# rosParamFileData is the Helm-templated content of the standard ROS parameter file to be mounted as ConfigMap.
+# Templates use the merged per-instance context and can reference values such as {{ .Values.name }}.
 rosParamFileData: null
 
 # volumes is a list of maps for hostPath, inline or existing ConfigMap, or image volumes
