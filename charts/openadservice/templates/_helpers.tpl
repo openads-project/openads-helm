@@ -27,6 +27,18 @@ prefixes and normalizes a name, unless it already contains the prefix
 {{- end -}}
 
 {{/*
+prefixes in-stack hostnames while preserving the original value when no prefix is set
+*/}}
+{{- define "openadservice.prefixedHost" -}}
+{{- $host := .host | toString -}}
+{{- if .namePrefix -}}
+{{- include "openadservice.prefixedName" (dict "name" $host "namePrefix" .namePrefix) -}}
+{{- else -}}
+{{- $host -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 creates the effective base name for a release
 */}}
 {{- define "openadservice.baseName" -}}

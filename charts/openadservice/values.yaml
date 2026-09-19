@@ -16,6 +16,9 @@ name: null
 # namePrefix prefixes chart-owned Kubernetes resources
 namePrefix: ""
 
+# envHostPrefixKeys lists environment variables who receives namePrefix
+envHostPrefixKeys: []
+
 # labels is a map of labels to add to the deployment and other resources
 labels: {}
 
@@ -66,7 +69,7 @@ x11XauthorityFile: null
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
 
-# dependsOn is a list of hosts/services to wait for before starting the main container (by means of `initContainers` running `nc`)
+# dependsOn is a list of hosts/services to wait for before starting the main container (by means of `initContainers` running `nc`); hosts receive namePrefix
 # - host: # hostname or service name
 #   port: # port
 dependsOn: []
@@ -108,7 +111,7 @@ env:
 
 # zenoh configures the RMW Zenoh session used by the service.
 zenoh:
-  # router is the Zenoh router endpoint to which the session connects.
+  # router is the Zenoh router endpoint to which the session connects; its host receives namePrefix.
   router:
     host: zenoh-router
     port: 7447

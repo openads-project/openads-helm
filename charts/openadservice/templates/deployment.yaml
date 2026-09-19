@@ -58,14 +58,15 @@ spec:
       {{- if or $values.dependsOn $values.initContainers }}
       initContainers:
       {{- range $dependency := $values.dependsOn }}
-      - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependency.host $dependency.port) }}"
+      {{- $dependencyHost := include "openadservice.prefixedHost" (dict "host" $dependency.host "namePrefix" $values.namePrefix) }}
+      - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependencyHost $dependency.port) }}"
         image: busybox:1.36
         command:
           - sh
           - -ec
           - >
-            until nc -z -w 1 {{ $dependency.host }} {{ $dependency.port }};
-            do echo "waiting for '{{ $dependency.host }}:{{ $dependency.port }}'"; sleep 1; done
+            until nc -z -w 1 {{ $dependencyHost }} {{ $dependency.port }};
+            do echo "waiting for '{{ $dependencyHost }}:{{ $dependency.port }}'"; sleep 1; done
       {{- end }}
       {{- with $values.initContainers }}
       {{ toYaml . | nindent 8 }}
@@ -116,7 +117,11 @@ spec:
         {{- range $key, $value := $values.env }}
         {{- if ne $key "ZENOH_CONFIG_OVERRIDE" }}
         - name: {{ $key }}
+          {{- if has $key ($values.envHostPrefixKeys | default (list)) }}
+          value: {{ include "openadservice.prefixedHost" (dict "host" $value "namePrefix" $values.namePrefix) | quote }}
+          {{- else }}
           value: {{ $value | quote }}
+          {{- end }}
         {{- end }}
         {{- end }}
         volumeMounts:
