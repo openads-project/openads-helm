@@ -117,11 +117,7 @@ spec:
         {{- range $key, $value := $values.env }}
         {{- if ne $key "ZENOH_CONFIG_OVERRIDE" }}
         - name: {{ $key }}
-          {{- if has $key ($values.envHostPrefixKeys | default (list)) }}
-          value: {{ include "openadservice.prefixedHost" (dict "host" $value "namePrefix" $values.namePrefix) | quote }}
-          {{- else }}
           value: {{ $value | quote }}
-          {{- end }}
         {{- end }}
         {{- end }}
         volumeMounts:

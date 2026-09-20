@@ -16,9 +16,6 @@ name: null
 # namePrefix prefixes chart-owned Kubernetes resources
 namePrefix: ""
 
-# envHostPrefixKeys lists environment variables who receives namePrefix
-envHostPrefixKeys: []
-
 # labels is a map of labels to add to the deployment and other resources
 labels: {}
 
