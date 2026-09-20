@@ -22,6 +22,7 @@ This repository contains essential Helm charts for [***OpenADS***](https://opena
 | [openadservice](./charts/openadservice) | 1.1.0 | OpenADService base chart providing common structure and configuration |
 | [triton-server](./charts/triton-server) | 26.05 | NVIDIA Triton Inference Server |
 | [zenoh-router](./charts/zenoh-router) | 0.2.10 | Zenoh Router for ROS 2 RMW Zenoh |
+| [zenoh-router-netem](./charts/zenoh-router-netem) | 0.2.10 | Zenoh Router for ROS 2 RMW Zenoh with network emulation |
 
 ## 🚀 Usage
 
