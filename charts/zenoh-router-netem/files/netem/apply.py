@@ -88,11 +88,23 @@ def ensure_htb(iface: str, rate: str) -> None:
         run(["tc", "class", "replace", "dev", iface, "parent", "1:", "classid", "1:11", "htb", "rate", rate])
 
 
+def is_zero_quantity(value: str, unit: str) -> bool:
+    return re.fullmatch(rf"0+(?:\.0+)?{re.escape(unit)}", value) is not None
+
+
 def apply_netem(iface: str, delay: str, jitter: str, dist: str, loss: str, limit: str) -> None:
-    cmd = [
-        "tc", "qdisc", "replace", "dev", iface, "parent", "1:11", "handle", "11:", "netem",
-        "delay", delay, jitter, "distribution", dist, "loss", loss,
-    ]
+    cmd = ["tc", "qdisc", "replace", "dev", iface, "parent", "1:11", "handle", "11:", "netem"]
+
+    if not (is_zero_quantity(delay, "ms") and is_zero_quantity(jitter, "ms")):
+        cmd.extend(["delay", delay])
+        if not is_zero_quantity(jitter, "ms"):
+            cmd.append(jitter)
+            if dist:
+                cmd.extend(["distribution", dist])
+
+    if not is_zero_quantity(loss, "%"):
+        cmd.extend(["loss", loss])
+
     if limit:
         cmd.extend(["limit", limit])
     run(cmd)
@@ -134,10 +146,10 @@ def main() -> int:
     auto_peer = is_true(env("AUTO_PEER", "true"))
     peer_host = env("PEER_HOST", "")
     peer_port = env("PEER_PORT", "")
-    delay = env("DELAY", "20ms")
-    jitter = env("JITTER", "5ms")
-    loss = env("LOSS", "0.5%")
-    rate = env("RATE", "50mbit")
+    delay = env("DELAY", "0ms")
+    jitter = env("JITTER", "0ms")
+    loss = env("LOSS", "0%")
+    rate = env("RATE", "1000mbit")
     dist = env("DIST", "normal")
     limit = env("LIMIT", "")
 

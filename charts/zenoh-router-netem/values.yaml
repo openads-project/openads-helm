@@ -25,16 +25,16 @@ netem:
   peerPort: null
 
   # delay is the latency to add to the packets
-  delay: 20ms
+  delay: 0ms
 
   # jitter is the variability of the added latency
-  jitter: 5ms
+  jitter: 0ms
 
   # loss is the percentage of packets to drop
-  loss: 0.5%
+  loss: 0%
 
   # rate is the bandwidth limit to apply to the traffic
-  rate: 50mbit
+  rate: 1000mbit
 
   # distribution is the distribution to use for delay and loss; can be "normal" or "pareto"
   distribution: normal

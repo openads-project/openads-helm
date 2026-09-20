@@ -4,6 +4,8 @@ Zenoh Router for ROS 2 RMW Zenoh with pod-level network emulation for reproducib
 
 The chart depends on [`zenoh-router`](../zenoh-router) and preserves its behavior and configuration under the `zenoh-router` value. It adds an init container that applies the startup profile and an optional HTTP sidecar for runtime inspection and updates. Both containers receive only the `NET_ADMIN` capability required to manage traffic control in the shared pod network namespace.
 
+Network emulation and its HTTP controller are enabled by default, but the default profile is neutral: `0ms` delay, `0ms` jitter, `0%` packet loss, and the same `1000mbit` rate used for pass-through traffic. Set the impairment values explicitly or update them through the runtime API to shape traffic.
+
 ## Configuration
 
 Configure the underlying router exactly as with the regular chart, nested below `zenoh-router`:
