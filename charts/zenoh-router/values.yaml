@@ -1,5 +1,4 @@
 openadservice:
-  # For a multi-node deployment example using openadservice.instances, see values.multinode.yaml
   name: zenoh-router
   image: rwthika/ros2:jazzy-ros-base-alternative-rmw
   env:

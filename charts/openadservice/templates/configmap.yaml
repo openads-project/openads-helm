@@ -1,3 +1,9 @@
+{{/*
+Render ConfigMaps once per configured instance, or once with the top-level values
+when no instances are defined. Each instance inherits the top-level values, applies
+its overrides, and receives a prefixed, instance-specific resource name. The custom
+context exposes these merged values and Helm's built-in objects to tpl calls below.
+*/}}
 {{- $hasInstances := gt (len .Values.instances) 0 }}
 {{- $instances := .Values.instances | default (dict "" (dict)) }}
 {{- range $instanceKey, $instance := $instances }}

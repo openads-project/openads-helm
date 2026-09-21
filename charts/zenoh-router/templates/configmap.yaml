@@ -1,3 +1,10 @@
+{{/*
+Render the router ConfigMap once per openadservice instance, or once with the
+top-level openadservice values when no instances are defined. Each instance inherits
+those values, applies its overrides, and receives a prefixed, instance-specific name.
+The custom context preserves the parent chart values and Helm's built-in objects for
+rendering the JSON5 configuration with tpl.
+*/}}
 {{- $instancesValue := .Values.openadservice.instances | default (dict) }}
 {{- $hasInstances := gt (len $instancesValue) 0 }}
 {{- $instances := $instancesValue | default (dict "" (dict)) }}

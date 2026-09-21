@@ -77,15 +77,6 @@ initContainers: []
 # nodeSelector is a map of node labels for pod scheduling
 nodeSelector: {}
 
-# affinity configures pod scheduling affinity/anti-affinity rules
-affinity: {}
-
-# tolerations configures pod tolerations
-tolerations: []
-
-# topologySpreadConstraints configures pod topology spread constraints
-topologySpreadConstraints: []
-
 # ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
 ports: []
 # - port:         # source port (defaults to `targetPort` if not specified)
