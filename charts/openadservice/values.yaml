@@ -66,7 +66,10 @@ x11XauthorityFile: null
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
 
-# dependsOn is a list of hosts/services to wait for before starting the main container (by means of `initContainers` running `nc`); hosts receive namePrefix
+# dependsOnApplyNamePrefix controls whether namePrefix is applied to dependsOn hosts
+dependsOnApplyNamePrefix: true
+
+# dependsOn is a list of hosts/services to wait for before starting the main container (by means of `initContainers` running `nc`)
 # - host: # hostname or service name
 #   port: # port
 dependsOn: []
@@ -101,7 +104,9 @@ env:
 rmw:
   # zenoh configures the RMW Zenoh session used by the service.
   zenoh:
-    # router is the Zenoh router endpoint to which the session connects; its host receives namePrefix.
+    # hostApplyNamePrefix controls whether namePrefix is applied to the router host.
+    hostApplyNamePrefix: true
+    # router is the Zenoh router endpoint to which the session connects.
     router:
       host: zenoh-router
       port: 7447

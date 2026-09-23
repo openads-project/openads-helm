@@ -52,7 +52,8 @@ spec:
       {{- if or $values.dependsOn $values.initContainers }}
       initContainers:
       {{- range $dependency := $values.dependsOn }}
-      {{- $dependencyHost := include "openadservice.prefixedHost" (dict "host" $dependency.host "namePrefix" $values.namePrefix) }}
+      {{- $dependencyNamePrefix := ternary $values.namePrefix "" $values.dependsOnApplyNamePrefix }}
+      {{- $dependencyHost := include "openadservice.prefixedHost" (dict "host" $dependency.host "namePrefix" $dependencyNamePrefix) }}
       - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependencyHost $dependency.port) }}"
         image: busybox:1.36
         command:
