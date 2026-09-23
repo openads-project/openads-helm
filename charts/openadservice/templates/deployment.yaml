@@ -85,7 +85,7 @@ spec:
             - IPC_LOCK
         {{- end }}
         {{- $zenohConfigOverrides := list }}
-        {{- range $key, $value := $values.zenoh.configOverrides }}
+        {{- range $key, $value := $values.rmw.zenoh.configOverrides }}
         {{- $zenohConfigOverrides = append $zenohConfigOverrides (printf "%s=%s" $key (toJson $value)) }}
         {{- end }}
         {{- with (get $values.env "ZENOH_CONFIG_OVERRIDE") }}

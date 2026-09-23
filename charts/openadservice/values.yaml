@@ -97,17 +97,19 @@ env:
   RUST_LOG: zenoh=warn
   ZENOH_ROUTER_CHECK_ATTEMPTS: 0
 
-# zenoh configures the RMW Zenoh session used by the service.
-zenoh:
-  # router is the Zenoh router endpoint to which the session connects; its host receives namePrefix.
-  router:
-    host: zenoh-router
-    port: 7447
-  # configOverrides maps Zenoh configuration paths to values. They are rendered into ZENOH_CONFIG_OVERRIDE.
-  # A raw env.ZENOH_CONFIG_OVERRIDE can still be used and is appended after these structured overrides.
-  # configOverrides:
-  #   scouting/multicast/enabled: false
-  configOverrides: {}
+# rmw configures settings specific to the selected ROS middleware implementation.
+rmw:
+  # zenoh configures the RMW Zenoh session used by the service.
+  zenoh:
+    # router is the Zenoh router endpoint to which the session connects; its host receives namePrefix.
+    router:
+      host: zenoh-router
+      port: 7447
+    # configOverrides maps Zenoh configuration paths to values. They are rendered into ZENOH_CONFIG_OVERRIDE.
+    # A raw env.ZENOH_CONFIG_OVERRIDE can still be used and is appended after these structured overrides.
+    # configOverrides:
+    #   scouting/multicast/enabled: false
+    configOverrides: {}
 
 # rosParamFileMountPath is the container mount path for the standard ROS parameter file
 rosParamFileMountPath: null
