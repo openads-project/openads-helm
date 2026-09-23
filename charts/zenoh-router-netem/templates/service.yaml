@@ -1,0 +1,59 @@
+{{- $zenohRouter := index .Values "zenoh-router" }}
+{{- $service := $zenohRouter.openadservice }}
+{{- if and $service.enable (not $service.enableService) }}
+{{- if $service.ports }}
+apiVersion: v1
+kind: Service
+{{- $name := printf "%s-external" ($service.name | default .Release.Name) }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  selector:
+    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}"
+  type: NodePort
+  externalTrafficPolicy: Local
+  ports:
+    {{- range $service.ports }}
+    - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
+      nodePort: {{ .nodePort }}
+      port: {{ .port | default .targetPort }}
+      targetPort: {{ .targetPort }}
+      protocol: "{{ .protocol | default "TCP" }}"
+    {{- end }}
+{{- end }}
+---
+{{- if or $service.expose (and .Values.netem.enabled .Values.netem.http.enabled) }}
+apiVersion: v1
+kind: Service
+{{- $name := $service.name | default .Release.Name }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  selector:
+    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}"
+  type: ClusterIP
+  ports:
+    {{- range $service.expose }}
+    - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
+      port: {{ .port | default .targetPort }}
+      targetPort: {{ .targetPort }}
+      protocol: "{{ .protocol | default "TCP" }}"
+    {{- end }}
+    {{- if and .Values.netem.enabled .Values.netem.http.enabled }}
+    - name: netem-http
+      port: {{ .Values.netem.http.port }}
+      targetPort: {{ .Values.netem.http.port }}
+      protocol: TCP
+    {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,260 @@
+{{- $zenohRouter := index .Values "zenoh-router" }}
+{{- $service := $zenohRouter.openadservice }}
+{{- $serviceContext := dict "Values" $service "Release" .Release "Chart" .Chart "Capabilities" .Capabilities "Template" .Template }}
+{{- if and $service.enable (not $service.enableDeployment) }}
+apiVersion: apps/v1
+kind: Deployment
+{{- $name := $service.name | default .Release.Name }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $service.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "{{ $name }}"
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "{{ $name }}"
+        {{- range $key, $value := $service.labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+    spec:
+      {{- with $service.imagePullSecrets }}
+      imagePullSecrets:
+      {{- range . }}
+      - name: "{{ . }}"
+      {{- end }}
+      {{- end }}
+      terminationGracePeriodSeconds: 1
+      {{- if $service.gpu }}
+      runtimeClassName: nvidia
+      {{- end }}
+      {{- if or $service.dependsOn $service.initContainers .Values.netem.enabled }}
+      initContainers:
+      {{- range $dependency := $service.dependsOn }}
+      - name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-wait-for-%s-%v" $name $dependency.host $dependency.port) }}"
+        image: busybox:1.36
+        command:
+        - sh
+        - -ec
+        - >
+          until nc -z -w 1 {{ $dependency.host }} {{ $dependency.port }};
+          do echo "waiting for '{{ $dependency.host }}:{{ $dependency.port }}'"; sleep 1; done
+      {{- end }}
+      {{- with $service.initContainers }}
+{{ toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if .Values.netem.enabled }}
+      - name: netem-init
+        image: "{{ .Values.netem.image }}"
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - /netem/apply.py
+        env:
+        - name: IFACE
+          value: "{{ .Values.netem.iface }}"
+        - name: AUTO_PEER
+          value: "{{ .Values.netem.autoPeer }}"
+        - name: PEER_HOST
+          value: "{{ .Values.netem.peerHost | default "" }}"
+        - name: PEER_PORT
+          value: "{{ .Values.netem.peerPort | default "" }}"
+        - name: ZENOH_PORT
+          value: "7447"
+        - name: DELAY
+          value: "{{ .Values.netem.delay }}"
+        - name: JITTER
+          value: "{{ .Values.netem.jitter }}"
+        - name: LOSS
+          value: "{{ .Values.netem.loss }}"
+        - name: RATE
+          value: "{{ .Values.netem.rate }}"
+        - name: DIST
+          value: "{{ .Values.netem.distribution }}"
+        - name: LIMIT
+          value: "{{ .Values.netem.limit | default "" }}"
+        securityContext: &netemSecurityContext
+          runAsUser: 0
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+            - NET_ADMIN
+        volumeMounts: &netemVolumeMounts
+        - name: netem
+          mountPath: /netem
+          readOnly: true
+      {{- end }}
+      {{- end }}
+      containers:
+      - name: "{{ $name }}"
+        image: "{{ $service.image }}"
+        imagePullPolicy: "{{ $service.imagePullPolicy }}"
+        {{- with $service.command }}
+        command:
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with $service.args }}
+        args:
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if $service.shm }}
+        securityContext:
+          capabilities:
+            add:
+            - IPC_LOCK
+        {{- end }}
+        env:
+        {{- if $service.gpu }}
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "all"
+        {{- end }}
+        {{- if $service.x11Display }}
+        - name: DISPLAY
+          value: "{{ $service.x11Display }}"
+        - name: XAUTHORITY
+          value: /.Xauthority
+        {{- end }}
+        {{- range $key, $value := $service.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        volumeMounts:
+        - name: timezone
+          mountPath: /etc/timezone
+        - name: localtime
+          mountPath: /etc/localtime
+        {{- if $service.shm }}
+        - name: shared-memory
+          mountPath: /dev/shm
+        {{- end }}
+        {{- if $service.x11XauthorityFile }}
+        - name: x11-unix
+          mountPath: /tmp/.X11-unix
+        - name: xauthority
+          mountPath: /.Xauthority
+        {{- end }}
+        - name: "{{ include "openadservice.rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
+          mountPath: /opt/ros/jazzy/share/rmw_zenoh_cpp/config/DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
+          subPath: DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5
+        {{- if and $service.rosParamFileMountPath $service.rosParamFileData }}
+        - name: "{{ include "openadservice.rfc1123CompliantName" ($service.rosParamFileMountPath | base) }}"
+          mountPath: "{{ $service.rosParamFileMountPath }}"
+          subPath: "{{ $service.rosParamFileMountPath | base }}"
+        {{- end }}
+        {{- range $service.volumes }}
+        {{- if or (and .data (not (empty (tpl .data $serviceContext)))) .hostPath .configMapName .image }}
+        - name: "{{ include "openadservice.volumeName" .mountPath }}"
+          mountPath: "{{ .mountPath }}"
+        {{- if or .data .configMapName }}
+          subPath: "{{ .configMapKey | default (.mountPath | base) }}"
+        {{- else if .image }}
+        {{- with .imagePath }}
+          subPath: "{{ . }}"
+        {{- end }}
+          readOnly: true
+        {{- end }}
+        {{- end }}
+        {{- end }}
+      {{- if and .Values.netem.enabled .Values.netem.http.enabled }}
+      - name: netem-http
+        image: "{{ .Values.netem.image }}"
+        imagePullPolicy: IfNotPresent
+        command:
+        - python3
+        - /netem/server.py
+        ports:
+        - name: netem-http
+          containerPort: {{ .Values.netem.http.port }}
+          protocol: TCP
+        env:
+        - name: IFACE
+          value: "{{ .Values.netem.iface }}"
+        - name: AUTO_PEER
+          value: "{{ .Values.netem.autoPeer }}"
+        - name: PEER_HOST
+          value: "{{ .Values.netem.peerHost | default "" }}"
+        - name: PEER_PORT
+          value: "{{ .Values.netem.peerPort | default "" }}"
+        - name: ZENOH_PORT
+          value: "7447"
+        - name: DELAY
+          value: "{{ .Values.netem.delay }}"
+        - name: JITTER
+          value: "{{ .Values.netem.jitter }}"
+        - name: LOSS
+          value: "{{ .Values.netem.loss }}"
+        - name: RATE
+          value: "{{ .Values.netem.rate }}"
+        - name: DIST
+          value: "{{ .Values.netem.distribution }}"
+        - name: LIMIT
+          value: "{{ .Values.netem.limit | default "" }}"
+        - name: NETEM_HTTP_PORT
+          value: "{{ .Values.netem.http.port }}"
+        securityContext: *netemSecurityContext
+        volumeMounts: *netemVolumeMounts
+      {{- end }}
+      volumes:
+      - name: timezone
+        hostPath:
+          path: /etc/timezone
+      - name: localtime
+        hostPath:
+          path: /etc/localtime
+      {{- if $service.shm }}
+      - name: shared-memory
+        hostPath:
+          path: /dev/shm
+          type: Directory
+      {{- end }}
+      {{- if $service.x11XauthorityFile }}
+      - name: x11-unix
+        hostPath:
+          path: /tmp/.X11-unix
+      - name: xauthority
+        hostPath:
+          path: "{{ $service.x11XauthorityFile }}"
+      {{- end }}
+      - name: "{{ include "openadservice.rfc1123CompliantName" ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5") }}"
+        configMap:
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" ($service.name | default .Release.Name) ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}"
+      {{- if and $service.rosParamFileMountPath $service.rosParamFileData }}
+      - name: "{{ include "openadservice.rfc1123CompliantName" ($service.rosParamFileMountPath | base) }}"
+        configMap:
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-%s" ($service.name | default .Release.Name) ($service.rosParamFileMountPath | base)) }}"
+      {{- end }}
+      {{- range $service.volumes }}
+      {{- if or (and .data (not (empty (tpl .data $serviceContext)))) .hostPath .configMapName .image }}
+      - name: "{{ include "openadservice.volumeName" .mountPath }}"
+      {{- if .data }}
+        configMap:
+          name: "{{ include "openadservice.inlineConfigMapName" (dict "root" $serviceContext "mountPath" .mountPath) }}"
+      {{- else if .configMapName }}
+        configMap:
+          name: "{{ tpl .configMapName $serviceContext }}"
+      {{- else if .hostPath }}
+        hostPath:
+          path: "{{ tpl .hostPath $serviceContext }}"
+      {{- else if .image }}
+        image:
+          reference: "{{ tpl .image $serviceContext }}"
+          pullPolicy: "{{ $service.imagePullPolicy }}"
+      {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- if .Values.netem.enabled }}
+      - name: netem
+        configMap:
+          name: "{{ include "openadservice.rfc1123CompliantName" (printf "%s-netem" ($service.name | default .Release.Name)) }}"
+          defaultMode: 0755
+      {{- end }}
+{{- end }}

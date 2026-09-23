@@ -1,0 +1,9 @@
+apiVersion: v2
+name: zenoh-router-netem
+version: 0.2.10
+appVersion: 0.2.10
+description: Zenoh Router for ROS 2 RMW Zenoh with network emulation
+dependencies:
+  - repository: oci://ghcr.io/openads-project/openads-helm
+    name: zenoh-router
+    version: 0.2.10
