@@ -1,17 +1,32 @@
-{{- if .Values.openadservice.enable }}
-{{- if .Values.openadservice.enableConfigMap }}
+{{/*
+Render the router ConfigMap once per openadservice instance, or once with the
+top-level openadservice values when no instances are defined. Each instance inherits
+those values, applies its overrides, and receives a prefixed, instance-specific name.
+The custom context preserves the parent chart values and Helm's built-in objects for
+rendering the JSON5 configuration with tpl.
+*/}}
+{{- $instancesValue := .Values.openadservice.instances | default (dict) }}
+{{- $hasInstances := gt (len $instancesValue) 0 }}
+{{- $instances := $instancesValue | default (dict "" (dict)) }}
+{{- range $instanceKey, $instance := $instances }}
+{{- $openadserviceValues := mergeOverwrite (deepCopy $.Values.openadservice) $instance }}
+{{- $baseName := include "openadservice.baseName" (dict "name" $.Values.openadservice.name "releaseName" $.Release.Name "namePrefix" $.Values.openadservice.namePrefix) }}
+{{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
+{{- $_ := set $openadserviceValues "name" $name }}
+{{- if and $openadserviceValues.enable $openadserviceValues.enableConfigMap }}
+{{- $ctx := dict "Values" (mergeOverwrite (deepCopy $.Values) (dict "openadservice" $openadserviceValues)) "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-%s" (.Values.openadservice.name | default .Release.Name) ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
+{{- $routerConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $routerConfigMapName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := .Values.openadservice.labels }}
+    app.kubernetes.io/name: "{{ $routerConfigMapName }}"
+    {{- range $key, $value := $openadserviceValues.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-{{ tpl ((.Files.Glob "files/DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5").AsConfig) $ | indent 2 }}
+{{ tpl (($.Files.Glob "files/DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5").AsConfig) $ctx | indent 2 }}
 ---
 {{- end }}
 {{- end }}
