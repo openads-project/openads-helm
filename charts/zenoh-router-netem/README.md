@@ -4,7 +4,7 @@ Zenoh Router for ROS 2 RMW Zenoh with pod-level network emulation for reproducib
 
 The chart depends on [`zenoh-router`](../zenoh-router) and preserves its behavior and configuration under the `zenoh-router` value. It adds an init container that applies the startup profile and an optional HTTP sidecar for runtime inspection and updates. Both containers receive only the `NET_ADMIN` capability required to manage traffic control in the shared pod network namespace.
 
-Network emulation and its HTTP controller are enabled by default, but the default profile is neutral: `0ms` delay, `0ms` jitter, `0%` packet loss, and the same `1000mbit` rate used for pass-through traffic. Set the impairment values explicitly or update them through the runtime API to shape traffic.
+Network emulation and its HTTP controller are enabled by default. The default profile applies `0ms` delay, `0ms` jitter, `0%` packet loss, and a `1000mbit` rate limit to matching remote traffic. Set the impairment values explicitly or update them through the runtime API to shape traffic.
 
 ## Configuration
 
@@ -29,7 +29,9 @@ netem:
   limit: 1000
 ```
 
-`netem.peerHost` and/or `netem.peerPort` must select the remote traffic to shape. With `autoPeer: true`, the controller prefers the address of an established Zenoh connection and falls back to the IPv4 addresses resolved from `peerHost`. Local in-cluster traffic therefore remains unshaped.
+`netem.peerHost` and/or `netem.peerPort` must select the remote traffic to shape. With `autoPeer: true`, the controller prefers the address of an established Zenoh connection and falls back to the IPv4 addresses resolved from `peerHost`. Unmatched traffic uses HTB's direct queue, without an emulated rate limit, delay, or loss. Its throughput is subject to the underlying network and host capacity.
+
+Applying a profile with the updated controller also migrates an existing HTB setup: it removes the legacy `1:10` pass-through class capped at `1000mbit`, so unmatched packets fall back to the direct queue without resetting the WAN queue. Fresh setups use default class `0` for the direct queue. Publish and deploy the updated chart on both shaped routers before relying on this behavior in a running simulation.
 
 The external NodePort service uses `externalTrafficPolicy: Local` by default so the remote source address is retained for symmetric shaping. Consequently, traffic must reach a node on which the router pod is running.
 

@@ -77,11 +77,12 @@ def ensure_htb(iface: str, rate: str) -> None:
     qdisc = run(["tc", "qdisc", "show", "dev", iface], check=False).stdout
     if "qdisc htb 1:" not in qdisc:
         run(["tc", "qdisc", "del", "dev", iface, "root"], check=False)
-        run(["tc", "qdisc", "add", "dev", iface, "root", "handle", "1:", "htb", "default", "10"])
+        run(["tc", "qdisc", "add", "dev", iface, "root", "handle", "1:", "htb", "default", "0"])
 
     classes = run(["tc", "class", "show", "dev", iface], check=False).stdout
-    if "class htb 1:10" not in classes:
-        run(["tc", "class", "add", "dev", iface, "parent", "1:", "classid", "1:10", "htb", "rate", "1000mbit"])
+    if "class htb 1:10" in classes:
+        # a missing default class uses HTB's direct queue; migrate without resetting the WAN queue
+        run(["tc", "class", "del", "dev", iface, "classid", "1:10"])
     if "class htb 1:11" not in classes:
         run(["tc", "class", "add", "dev", iface, "parent", "1:", "classid", "1:11", "htb", "rate", rate])
     else:
