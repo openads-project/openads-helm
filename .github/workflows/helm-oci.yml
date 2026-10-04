@@ -55,6 +55,7 @@ jobs:
         chart:
           - triton-server
           - zenoh-router
+          - zenoh-router-netem
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

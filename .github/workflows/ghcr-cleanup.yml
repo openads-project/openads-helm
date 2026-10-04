@@ -16,6 +16,7 @@ jobs:
         chart:
           - openadservice
           - zenoh-router
+          - zenoh-router-netem
     steps:
       - name: Cleanup ${{ matrix.chart }}
         uses: dataaxiom/ghcr-cleanup-action@v1.2.2
