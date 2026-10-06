@@ -1,0 +1,7 @@
+# select releases from Compose profiles.
+{% raw %}{{- $selectedProfiles := splitList "," (env "COMPOSE_PROFILES" | default {% endraw %}{{ default_profiles | go_string }}{% raw %}) }}{% endraw %}{{ "\n" }}
+serviceEnabled:
+{% for service in services %}
+  {{ service.release_name }}:
+    enabled: {{ "{{" }} {% if service.profiles %}or {% for profile in service.profiles %}(has {{ profile | go_string }} $selectedProfiles) {% endfor %}{% else %}true {% endif %}{{ "}}" }}
+{% endfor %}
