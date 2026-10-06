@@ -75,7 +75,7 @@ permissions:
 
 jobs:
   generate:
-    name: Generate and validate Helmfile
+    name: Build and validate
     runs-on: ubuntu-latest
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
