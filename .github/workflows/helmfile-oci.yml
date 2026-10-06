@@ -1,0 +1,254 @@
+name: Helmfile OCI
+
+on:
+  workflow_call:
+    inputs:
+      compose-file:
+        description: Path to the caller's top-level Compose file.
+        required: true
+        type: string
+      env-file:
+        description: Compose and Helmfile validation dotenv file; defaults to .env beside the Compose file.
+        required: false
+        type: string
+        default: ""
+      chart-map:
+        description: Optional caller-owned chart mapping.
+        required: false
+        type: string
+        default: ""
+      profiles:
+        description: Comma-separated default Compose profiles.
+        required: false
+        type: string
+        default: ""
+      output-dir:
+        description: Caller-relative directory replaced by generated files.
+        required: true
+        type: string
+      helmfile-entrypoint:
+        description: Helmfile to validate; defaults to <output-dir>/helmfile.yaml.
+        required: false
+        type: string
+        default: ""
+      bundle-dir:
+        description: Directory archived after validation; defaults to output-dir.
+        required: false
+        type: string
+        default: ""
+      active-profiles-only:
+        description: Export only services in the selected profiles.
+        required: false
+        type: boolean
+        default: false
+      artifact-name:
+        description: Actions artifact and archive name prefix.
+        required: false
+        type: string
+        default: helmfile
+    outputs:
+      artifact-name:
+        description: Name of the seven-day Actions artifact.
+        value: ${{ jobs.generate.outputs.artifact-name }}
+      artifact-digest:
+        description: SHA-256 digest reported by upload-artifact.
+        value: ${{ jobs.generate.outputs.artifact-digest }}
+      archive-name:
+        description: Filename of the generated tarball.
+        value: ${{ jobs.generate.outputs.archive-name }}
+      output-dir:
+        description: Caller-relative generated directory.
+        value: ${{ inputs.output-dir }}
+      helmfile-entrypoint:
+        description: Caller-relative Helmfile validated by the workflow.
+        value: ${{ jobs.generate.outputs.helmfile-entrypoint }}
+      bundle-dir:
+        description: Caller-relative directory represented by the archive contents.
+        value: ${{ jobs.generate.outputs.bundle-dir }}
+      oci-reference:
+        description: OCI repository receiving default-branch and version-tag builds.
+        value: ${{ jobs.generate.outputs.oci-reference }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  generate:
+    name: Build and validate
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: ${{ inputs.artifact-name }}
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      archive-name: ${{ steps.archive.outputs.archive-name }}
+      helmfile-entrypoint: ${{ steps.bundle.outputs.helmfile-entrypoint }}
+      bundle-dir: ${{ steps.bundle.outputs.bundle-dir }}
+      oci-reference: ${{ steps.publication.outputs.oci-reference }}
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Generate Helmfile
+        id: generate
+        uses: $/utils/helmfile-generator
+        with:
+          compose-file: ${{ inputs.compose-file }}
+          env-file: ${{ inputs.env-file }}
+          chart-map: ${{ inputs.chart-map }}
+          profiles: ${{ inputs.profiles }}
+          active-profiles-only: ${{ inputs.active-profiles-only }}
+          output-dir: ${{ inputs.output-dir }}
+
+      - name: Resolve Helmfile bundle
+        id: bundle
+        shell: bash
+        env:
+          BUNDLE_DIR_INPUT: ${{ inputs.bundle-dir }}
+          GENERATED_DIR: ${{ steps.generate.outputs.output-dir }}
+          HELMFILE_ENTRYPOINT_INPUT: ${{ inputs.helmfile-entrypoint }}
+        run: |
+          set -euo pipefail
+          workspace="$(realpath "$GITHUB_WORKSPACE")"
+          generated_dir="$(realpath "$GENERATED_DIR")"
+          bundle_dir="$(realpath "${BUNDLE_DIR_INPUT:-$generated_dir}")"
+          helmfile_entrypoint="$(realpath "${HELMFILE_ENTRYPOINT_INPUT:-$generated_dir/helmfile.yaml}")"
+
+          if [[ "$bundle_dir" == "$workspace" || "$bundle_dir" != "$workspace/"* ]]; then
+            echo "Bundle directory must be below the caller workspace: $bundle_dir" >&2
+            exit 1
+          fi
+          if [[ ! -d "$bundle_dir" ]]; then
+            echo "Bundle directory not found: $bundle_dir" >&2
+            exit 1
+          fi
+          if [[ "$generated_dir" != "$bundle_dir" && "$generated_dir" != "$bundle_dir/"* ]]; then
+            echo "Generated directory must be inside the bundle: $generated_dir" >&2
+            exit 1
+          fi
+          if [[ ! -f "$helmfile_entrypoint" || "$helmfile_entrypoint" != "$bundle_dir/"* ]]; then
+            echo "Helmfile entrypoint must be a file inside the bundle: $helmfile_entrypoint" >&2
+            exit 1
+          fi
+          {
+            echo "bundle-dir=$bundle_dir"
+            echo "bundle-dir-relative=$(realpath --relative-to "$workspace" "$bundle_dir")"
+            echo "entrypoint-dir=$(dirname "$helmfile_entrypoint")"
+            echo "entrypoint-name=$(basename "$helmfile_entrypoint")"
+            echo "helmfile-entrypoint=$(realpath --relative-to "$workspace" "$helmfile_entrypoint")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build Helmfile state
+        uses: helmfile/helmfile-action@v2.2.0
+        with:
+          helm-version: v3.19.0
+          helmfile-version: v1.1.7
+          helmfile-workdirectory: ${{ steps.bundle.outputs.entrypoint-dir }}
+          helmfile-args: build --file ${{ steps.bundle.outputs.entrypoint-name }}
+
+      - name: Template Helmfile releases
+        working-directory: ${{ steps.bundle.outputs.entrypoint-dir }}
+        env:
+          HELMFILE_ENTRYPOINT: ${{ steps.bundle.outputs.entrypoint-name }}
+        run: helmfile --file "$HELMFILE_ENTRYPOINT" template
+
+      - name: Create reproducible archive
+        id: archive
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ inputs.artifact-name }}
+          BUNDLE_DIR: ${{ steps.bundle.outputs.bundle-dir }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$ARTIFACT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "Invalid artifact name: $ARTIFACT_NAME" >&2
+            exit 1
+          fi
+          archive_name="${ARTIFACT_NAME}-${GITHUB_SHA}.tar.gz"
+          archive_path="${RUNNER_TEMP}/${archive_name}"
+          tar \
+            --sort=name \
+            --mtime='@0' \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --directory "$BUNDLE_DIR" \
+            --create \
+            --file - \
+            . | gzip --no-name > "$archive_path"
+          sha256sum "$archive_path"
+          {
+            echo "archive-name=$archive_name"
+            echo "archive-path=$archive_path"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ steps.archive.outputs.archive-path }}
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+      - name: Determine OCI publication
+        id: publication
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}/helmfile"
+          publish=false
+          tags=()
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            publish=true
+            tags+=("${DEFAULT_BRANCH//\//-}" "sha-${GITHUB_SHA}")
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            publish=true
+            tags+=("$GITHUB_REF_NAME" "sha-${GITHUB_SHA}")
+          fi
+          {
+            echo "oci-reference=$repository"
+            echo "publish=$publish"
+            echo "tags<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up ORAS
+        if: steps.publication.outputs.publish == 'true'
+        uses: oras-project/setup-oras@v2.0.1
+        with:
+          version: 1.3.4
+
+      - name: Log in to GHCR
+        if: steps.publication.outputs.publish == 'true'
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish OCI artifact
+        if: steps.publication.outputs.publish == 'true'
+        shell: bash
+        env:
+          ARCHIVE_PATH: ${{ steps.archive.outputs.archive-path }}
+          OCI_REFERENCE: ${{ steps.publication.outputs.oci-reference }}
+          OCI_TAGS: ${{ steps.publication.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tag_list=""
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            tag_list="${tag_list:+${tag_list},}${tag}"
+          done <<< "$OCI_TAGS"
+          oras push \
+            --artifact-type application/vnd.openads.helmfile.v1 \
+            --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            "${OCI_REFERENCE}:${tag_list}" \
+            "${ARCHIVE_PATH}:application/vnd.openads.helmfile.layer.v1.tar+gzip"

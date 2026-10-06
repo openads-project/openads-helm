@@ -1,0 +1,57 @@
+name: Helmfile generator
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/helmfile-generator.yml
+      - .github/workflows/helmfile-oci.yml
+      - utils/helmfile-generator/**
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/helmfile-generator.yml
+      - .github/workflows/helmfile-oci.yml
+      - utils/helmfile-generator/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Helmfile generator
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: utils/helmfile-generator/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r utils/helmfile-generator/requirements.txt
+
+      - name: Run unit tests
+        working-directory: utils/helmfile-generator
+        run: python -m unittest discover -v
+
+      - name: Compile Python sources
+        run: python -m compileall -q utils/helmfile-generator
+
+      - name: Lint workflows
+        run: >-
+          docker run --rm
+          --volume "$PWD:/repo"
+          --workdir /repo
+          rhysd/actionlint:1.7.12
+          -color
+          -ignore '\$/'
+          .github/workflows/helmfile-generator.yml
+          .github/workflows/helmfile-oci.yml
