@@ -47,9 +47,8 @@ class CiEnvironmentTest(unittest.TestCase):
             self.assertIn("COMPOSE_PROFILES<<", exported)
             self.assertIn("traffic,planning", exported)
             self.assertIn("REQUIRED_VALUE<<", exported)
-            self.assertIn("DEPLOYMENT_PREFIX<<", exported)
-            self.assertIn("\nci\n", exported)
             self.assertIn("PROJECT_ROOT<<", exported)
+            self.assertNotIn("DEPLOYMENT_PREFIX", exported)
 
     def test_rejects_ci_environment_override(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

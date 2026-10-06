@@ -67,9 +67,6 @@ def main() -> None:
     if args.chart_map:
         chart_map = yaml.safe_load(args.chart_map.read_text(encoding="utf-8")) or {}
         deployment = chart_map.get("deployment", {})
-        name_prefix_env = deployment.get("name_prefix_env")
-        if name_prefix_env:
-            values.setdefault(name_prefix_env, "ci")
         host_path_root_env = deployment.get("host_path_root_env")
         if host_path_root_env:
             values.setdefault(host_path_root_env, str(args.workspace.resolve()))

@@ -14,7 +14,7 @@ python3 utils/helmfile-generator/helmfile_generator.py docker-compose.yml \
 
 `--profile NAME` is repeatable and sets the default enabled profiles in the output. `--active-profiles-only` exports only services in the active Compose profiles. `--dry-run` prints generated content without writing. `--env-file FILE` selects the environment used for Compose interpolation and Helmfile validation; the default is `.env` beside the Compose file.
 
-The generator produces `helmfile.yaml`, `environments/services.yaml.gotmpl`, and values and copied assets for every exported service. The input `.env` is never copied to the output. Generated directories should be treated as replaceable artifacts; keep manually maintained releases and overrides in a separate parent Helmfile.
+The generator produces `helmfile.yaml`, `environments/services.yaml.gotmpl`, and values and copied assets for every exported service. Generated directories should be treated as replaceable artifacts; keep manually maintained releases and overrides in a separate parent Helmfile.
 
 ## GitHub Action
 
@@ -30,7 +30,7 @@ The local composite action packages the runtime dependencies and is consumed by 
     output-dir: deployments/generated
 ```
 
-The selected `env-file` remains caller-owned. CI reads its values for generation and for `helmfile build`/`helmfile template`, but never copies the file into the generated directory or archive. The reusable workflow also supports a caller-owned parent Helmfile through `helmfile-entrypoint` and archives generated and manual releases together through `bundle-dir`; both inputs default to the generated output for simple projects.
+CI reads the selected `env-file` for generation and for `helmfile build`/`helmfile template`. The reusable workflow also supports a caller-owned parent Helmfile through `helmfile-entrypoint` and archives `bundle-dir` as-is; both inputs default to the generated output for simple projects.
 
 The action requires `output-dir` to be a directory below the caller workspace. It replaces that directory in the ephemeral checkout before generation. Use the same path when extracting the archive later; generated host paths for copied assets intentionally refer to this caller-relative location.
 

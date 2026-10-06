@@ -107,8 +107,6 @@ jobs:
         shell: bash
         env:
           BUNDLE_DIR_INPUT: ${{ inputs.bundle-dir }}
-          COMPOSE_FILE_INPUT: ${{ inputs.compose-file }}
-          ENV_FILE_INPUT: ${{ inputs.env-file }}
           GENERATED_DIR: ${{ steps.generate.outputs.output-dir }}
           HELMFILE_ENTRYPOINT_INPUT: ${{ inputs.helmfile-entrypoint }}
         run: |
@@ -117,8 +115,6 @@ jobs:
           generated_dir="$(realpath "$GENERATED_DIR")"
           bundle_dir="$(realpath "${BUNDLE_DIR_INPUT:-$generated_dir}")"
           helmfile_entrypoint="$(realpath "${HELMFILE_ENTRYPOINT_INPUT:-$generated_dir/helmfile.yaml}")"
-          env_file="${ENV_FILE_INPUT:-$(dirname "$COMPOSE_FILE_INPUT")/.env}"
-          env_file="$(realpath "$env_file")"
 
           if [[ "$bundle_dir" == "$workspace" || "$bundle_dir" != "$workspace/"* ]]; then
             echo "Bundle directory must be below the caller workspace: $bundle_dir" >&2
@@ -136,11 +132,6 @@ jobs:
             echo "Helmfile entrypoint must be a file inside the bundle: $helmfile_entrypoint" >&2
             exit 1
           fi
-          if [[ "$env_file" == "$bundle_dir/"* ]]; then
-            echo "Environment file must not be inside the bundle: $env_file" >&2
-            exit 1
-          fi
-
           {
             echo "bundle-dir=$bundle_dir"
             echo "bundle-dir-relative=$(realpath --relative-to "$workspace" "$bundle_dir")"
