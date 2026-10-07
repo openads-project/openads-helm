@@ -30,7 +30,7 @@ The local composite action packages the runtime dependencies and is consumed by 
     output-dir: deployments/generated
 ```
 
-CI reads the selected `env-file` for generation and for `helmfile build`/`helmfile template`. The reusable workflow also supports a caller-owned parent Helmfile through `helmfile-entrypoint` and archives `bundle-dir` as-is; both inputs default to the generated output for simple projects.
+CI reads the selected `env-file` for generation and for `helmfile build`/`helmfile template`. The reusable workflow also supports a caller-owned parent Helmfile through `helmfile-entrypoint` and archives `bundle-dir` as-is; both inputs default to the generated output for simple projects. Set `include-env-file-in-bundle: true` to copy the selected dotenv file to `.env` at the bundle root immediately before validation and archiving. This is opt-in because dotenv files can contain secrets.
 
 The action requires `output-dir` to be a directory below the caller workspace. It replaces that directory in the ephemeral checkout before generation. Use the same path when extracting the archive later; generated host paths for copied assets intentionally refer to this caller-relative location.
 

@@ -12,6 +12,11 @@ on:
         required: false
         type: string
         default: ""
+      include-env-file-in-bundle:
+        description: Copy the selected dotenv file to .env at the root of the archived bundle.
+        required: false
+        type: boolean
+        default: false
       chart-map:
         description: Optional caller-owned chart mapping.
         required: false
@@ -107,8 +112,11 @@ jobs:
         shell: bash
         env:
           BUNDLE_DIR_INPUT: ${{ inputs.bundle-dir }}
+          COMPOSE_FILE_INPUT: ${{ inputs.compose-file }}
+          ENV_FILE_INPUT: ${{ inputs.env-file }}
           GENERATED_DIR: ${{ steps.generate.outputs.output-dir }}
           HELMFILE_ENTRYPOINT_INPUT: ${{ inputs.helmfile-entrypoint }}
+          INCLUDE_ENV_FILE_IN_BUNDLE: ${{ inputs.include-env-file-in-bundle }}
         run: |
           set -euo pipefail
           workspace="$(realpath "$GITHUB_WORKSPACE")"
@@ -131,6 +139,17 @@ jobs:
           if [[ ! -f "$helmfile_entrypoint" || "$helmfile_entrypoint" != "$bundle_dir/"* ]]; then
             echo "Helmfile entrypoint must be a file inside the bundle: $helmfile_entrypoint" >&2
             exit 1
+          fi
+          if [[ "$INCLUDE_ENV_FILE_IN_BUNDLE" == "true" ]]; then
+            dotenv_file="$(realpath "${ENV_FILE_INPUT:-$(dirname "$COMPOSE_FILE_INPUT")/.env}")"
+            if [[ ! -f "$dotenv_file" || "$dotenv_file" != "$workspace/"* ]]; then
+              echo "Environment file must be a file inside the caller workspace: $dotenv_file" >&2
+              exit 1
+            fi
+            bundled_env="$bundle_dir/.env"
+            if [[ "$dotenv_file" != "$bundled_env" ]]; then
+              cp -- "$dotenv_file" "$bundled_env"
+            fi
           fi
           {
             echo "bundle-dir=$bundle_dir"
