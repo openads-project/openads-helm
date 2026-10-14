@@ -67,6 +67,19 @@ jobs:
 
 `helmfile-entrypoint` defaults to `<output-dir>/helmfile.yaml`, and `bundle-dir` defaults to `output-dir`. The generated directory and entrypoint must be contained in the bundle. The workflow archives the bundle as-is.
 
+### GitLab CI component
+
+[`templates/helmfile-oci.yml`](./templates/helmfile-oci.yml) is the GitLab counterpart of `helmfile-oci.yml` with the same inputs. It keeps the archive as a seven-day job artifact and publishes default-branch and version-tag builds to `$CI_REGISTRY_IMAGE/helmfile`.
+
+```yaml
+include:
+  - remote: https://raw.githubusercontent.com/openads-project/openads-helm/<commit-sha>/templates/helmfile-oci.yml
+    inputs:
+      compose-file: docker-compose.yml
+      output-dir: deployments/generated
+      openads-helm-ref: <commit-sha>
+```
+
 ## 🙏 Acknowledgements
 
 Development and maintenance of this repository are supported by the following projects. We acknowledge the funding of the respective institutions.

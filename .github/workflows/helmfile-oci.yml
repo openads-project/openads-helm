@@ -254,8 +254,9 @@ jobs:
       - name: Publish OCI artifact
         if: steps.publication.outputs.publish == 'true'
         shell: bash
+        working-directory: ${{ runner.temp }}
         env:
-          ARCHIVE_PATH: ${{ steps.archive.outputs.archive-path }}
+          ARCHIVE_NAME: ${{ steps.archive.outputs.archive-name }}
           OCI_REFERENCE: ${{ steps.publication.outputs.oci-reference }}
           OCI_TAGS: ${{ steps.publication.outputs.tags }}
         run: |
@@ -270,4 +271,4 @@ jobs:
             --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             "${OCI_REFERENCE}:${tag_list}" \
-            "${ARCHIVE_PATH}:application/vnd.openads.helmfile.layer.v1.tar+gzip"
+            "${ARCHIVE_NAME}:application/vnd.openads.helmfile.layer.v1.tar+gzip"

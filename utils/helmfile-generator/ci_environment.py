@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import secrets
+import shlex
 from pathlib import Path
 
 import yaml
@@ -22,24 +23,32 @@ BLOCKED_ENV_NAMES = {
     "PYTHONPATH",
     "SHELLOPTS",
 }
+BLOCKED_ENV_PREFIXES = ("ACTIONS_", "GITHUB_", "RUNNER_", "CI_", "GITLAB_")
+
+
+def _validate_names(values: dict[str, str]) -> None:
+    for name in values:
+        if not ENV_NAME.fullmatch(name):
+            raise ValueError(f"invalid environment variable name: {name}")
+        if name in BLOCKED_ENV_NAMES or name.startswith(BLOCKED_ENV_PREFIXES):
+            raise ValueError(f"refusing to override CI environment variable: {name}")
 
 
 def _write_github_env(destination: Path, values: dict[str, str]) -> None:
+    _validate_names(values)
     with destination.open("a", encoding="utf-8") as output:
         for name, value in values.items():
-            if not ENV_NAME.fullmatch(name):
-                raise ValueError(f"invalid environment variable name: {name}")
-            if (
-                name in BLOCKED_ENV_NAMES
-                or name.startswith("ACTIONS_")
-                or name.startswith("GITHUB_")
-                or name.startswith("RUNNER_")
-            ):
-                raise ValueError(f"refusing to override CI environment variable: {name}")
             delimiter = f"helmfile_generator_{secrets.token_hex(12)}"
             if delimiter in value:
                 raise ValueError(f"cannot safely export environment variable: {name}")
             output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")
+
+
+def _write_shell_env(destination: Path, values: dict[str, str]) -> None:
+    _validate_names(values)
+    with destination.open("a", encoding="utf-8") as output:
+        for name, value in values.items():
+            output.write(f"export {name}={shlex.quote(value)}\n")
 
 
 def main() -> None:
@@ -49,7 +58,9 @@ def main() -> None:
     parser.add_argument("--chart-map", type=Path)
     parser.add_argument("--profiles", default="")
     parser.add_argument("--workspace", type=Path, required=True)
-    parser.add_argument("--github-env", type=Path, required=True)
+    destination = parser.add_mutually_exclusive_group(required=True)
+    destination.add_argument("--github-env", type=Path)
+    destination.add_argument("--shell-env", type=Path)
     args = parser.parse_args()
 
     compose_file = args.compose_file.resolve()
@@ -71,7 +82,10 @@ def main() -> None:
         if host_path_root_env:
             values.setdefault(host_path_root_env, str(args.workspace.resolve()))
 
-    _write_github_env(args.github_env, values)
+    if args.github_env:
+        _write_github_env(args.github_env, values)
+    else:
+        _write_shell_env(args.shell_env, values)
 
 
 if __name__ == "__main__":
