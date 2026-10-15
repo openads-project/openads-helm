@@ -5,9 +5,8 @@ environments:
 ---
 releases:
 {% for service in services %}
-{% if prefix_env %}- name: '{{ "{{" }} printf "%s-{{ service.release_name }}" (env {{ prefix_env | go_string }}) | trimPrefix "-" {{ "}}" }}'
-{% else %}- name: {{ service.release_name }}
-{% endif %}
+- name: '{{ "{{" }} printf "%s-{{ service.release_name }}" (env {{ prefix_env | go_string }}) | trimPrefix "-" {{ "}}" }}'
+
   chart: {{ service.chart.url }}
   version: {{ service.chart.version | yaml_scalar }}
   condition: serviceEnabled.{{ service.release_name }}.enabled

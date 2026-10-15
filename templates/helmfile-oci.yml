@@ -103,9 +103,6 @@ spec:
     if [[ -n "$ENV_FILE_INPUT" ]]; then
       arguments+=(--env-file "$ENV_FILE_INPUT")
     fi
-    if [[ -n "$CHART_MAP_INPUT" ]]; then
-      arguments+=(--chart-map "$CHART_MAP_INPUT")
-    fi
     python "$generator_dir/ci_environment.py" "${arguments[@]}"
     . "$validation_env"
     rm -f -- "$validation_env"

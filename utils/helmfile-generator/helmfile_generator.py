@@ -52,8 +52,14 @@ MAIN_CHART_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)-main")
 ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
 
-CHART_MAP_KEYS = {"runtime_env", "excluded_profiles", "volume_policies", "services"}
-RUNTIME_ENV_KEYS = ("name_prefix", "node", "host_path_root")
+CHART_MAP_KEYS = {"excluded_profiles", "volume_policies", "services"}
+# Environment variables read when Helmfile runs.
+# Prefix for release and resource names, so several stacks share a namespace.
+NAME_PREFIX_ENV = "DEPLOYMENT_PREFIX"
+# Kubernetes node (kubernetes.io/hostname) that runs all pods.
+NODE_ENV = "NODE"
+# Absolute path of the Compose directory on the node; root of hostPath mounts.
+HOST_PATH_ROOT_ENV = "PROJECT_PATH"
 
 
 class ConversionError(RuntimeError):
@@ -163,18 +169,6 @@ class ComposeToHelmfileConverter:
         ):
             raise ConversionError("excluded_profiles must be a list of profile names")
         self.excluded_profiles = frozenset(excluded_profiles)
-        self.runtime_env = self.chart_map.get("runtime_env", {})
-        if not isinstance(self.runtime_env, dict):
-            raise ConversionError("runtime_env must be a mapping")
-        unknown_runtime_keys = sorted(set(self.runtime_env) - set(RUNTIME_ENV_KEYS))
-        if unknown_runtime_keys:
-            raise ConversionError(
-                "unknown runtime_env keys: " + ", ".join(map(str, unknown_runtime_keys))
-            )
-        for key in RUNTIME_ENV_KEYS:
-            value = self.runtime_env.get(key)
-            if value is not None and (not isinstance(value, str) or not value):
-                raise ConversionError(f"runtime_env.{key} must be an environment variable name")
         for service_name, mapping in self.service_mappings.items():
             value_rules = mapping.get("value_replacements", {})
             if not isinstance(value_rules, dict):
@@ -916,19 +910,16 @@ class ComposeToHelmfileConverter:
             relative = source.relative_to(self.compose_dir)
         except ValueError:
             return self._go_string(str(source))
-        root_env = self.runtime_env.get("host_path_root")
-        if not root_env:
-            return self._go_string(str(source))
+        root = f'(requiredEnv {self._go_string(HOST_PATH_ROOT_ENV)})'
         if relative == Path("."):
-            return f'(requiredEnv {self._go_string(root_env)})'
+            return root
         return (
-            '(printf "%s/%s" '
-            f'(requiredEnv {self._go_string(root_env)}) '
+            f'(printf "%s/%s" {root} '
             f'{self._go_string(relative.as_posix())} | clean)'
         )
 
     def _host_path_value(self, source: Path) -> str:
-        if not source.resolve().is_relative_to(self.compose_dir) or not self.runtime_env.get("host_path_root"):
+        if not source.resolve().is_relative_to(self.compose_dir):
             return str(source)
         expression = self._host_root_expression(source)
         return f'{{{{ {expression} | quote }}}}'
@@ -1334,7 +1325,7 @@ class ComposeToHelmfileConverter:
         self, services: list[ConvertedService]
     ) -> str:
         template = self.jinja_env.get_template("helmfile.j2")
-        return template.render(services=services, prefix_env=self.runtime_env.get("name_prefix"))
+        return template.render(services=services, prefix_env=NAME_PREFIX_ENV)
 
     def _render_services(self, services: list[ConvertedService]) -> str:
         template = self.jinja_env.get_template("services.yaml.gotmpl.j2")
@@ -1489,18 +1480,15 @@ class ComposeToHelmfileConverter:
         root_key = f"{VALUES_ROOT}:\n"
         if content == f"{VALUES_ROOT}: {{}}\n":
             content = root_key
-        prefix_env = self.runtime_env.get("name_prefix")
-        node_env = self.runtime_env.get("node")
-        runtime_values = ""
-        if prefix_env:
-            runtime_values += f'  namePrefix: {{{{ env {self._go_string(prefix_env)} | quote }}}}\n'
-        if node_env:
-            runtime_values += (
-                f'{{{{- if env {self._go_string(node_env)} }}}}\n'
-                "  nodeSelector:\n"
-                f'    kubernetes.io/hostname: {{{{ env {self._go_string(node_env)} | quote }}}}\n'
-                "{{- end }}\n"
-            )
+        prefix_env = self._go_string(NAME_PREFIX_ENV)
+        node_env = self._go_string(NODE_ENV)
+        runtime_values = (
+            f'  namePrefix: {{{{ env {prefix_env} | quote }}}}\n'
+            f'{{{{- if env {node_env} }}}}\n'
+            "  nodeSelector:\n"
+            f'    kubernetes.io/hostname: {{{{ env {node_env} | quote }}}}\n'
+            "{{- end }}\n"
+        )
         content = content.replace(root_key, root_key + runtime_values, 1)
         for marker, replacement in replacements.items():
             content = content.replace(marker, replacement)

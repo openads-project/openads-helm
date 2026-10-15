@@ -18,7 +18,6 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         root = Path(self.temp_dir.name)
         chart_map = root / "chart-map.yaml"
         chart_map.write_text(
-            'runtime_env:\n  name_prefix: DEPLOYMENT_PREFIX\n  node: NODE\n  host_path_root: OPENADSIM_PATH\n'
             'services:\n  carla-server:\n    chart: oci://example.test/carla-server\n    version: 1.0.0\n    dependency_port_env: CARLA_PORT\n'
             '  carla-ros-bridge:\n    chart: oci://example.test/carla-ros-bridge\n    version: 1.0.0\n'
         )
@@ -38,7 +37,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
 
         self.assertEqual(expression, '(default "" (env "SPAWN_POINT"))')
 
-    def test_unconfigured_project_has_no_deployment_prefix(self) -> None:
+    def test_project_without_chart_map_reads_runtime_environment(self) -> None:
         root = Path(self.temp_dir.name)
         generic = ComposeToHelmfileConverter(
             compose_file=root / "compose.yml", profiles=[],
@@ -49,8 +48,13 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             chart=ChartRef("oci://example.test/api", "1.0.0"),
             values_dir="api",
         )
-        self.assertIn("- name: api\n", generic._render_helmfile([service]))
-        self.assertNotIn("namePrefix", generic._render_values(service))
+        self.assertIn(
+            '{{ printf "%s-api" (env "DEPLOYMENT_PREFIX") | trimPrefix "-" }}',
+            generic._render_helmfile([service]),
+        )
+        values = generic._render_values(service)
+        self.assertIn('namePrefix: {{ env "DEPLOYMENT_PREFIX" | quote }}', values)
+        self.assertIn('{{- if env "NODE" }}', values)
         self.assertEqual(
             generic._chart_ref("api", "ghcr.io/example/api:v1.2.3").version,
             "1.2.3",
@@ -321,7 +325,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         values = self.converter._render_values(converted)
         self.assertIn("mountPath: /opendrive.xodr", values)
         self.assertIn('env "CUSTOM_OPENDRIVE"', values)
-        self.assertIn('requiredEnv "OPENADSIM_PATH"', values)
+        self.assertIn('requiredEnv "PROJECT_PATH"', values)
 
     def test_optional_bind_pattern_applies_to_another_service(self) -> None:
         source_file = self.converter.compose_dir / "openadstack/localization/docker-compose.yml"
@@ -374,7 +378,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             {volume["mountPath"] for volume in converted.values["volumes"]},
             {"/data/maps", "/lanelet/lanelet.osm"},
         )
-        self.assertIn('requiredEnv "OPENADSIM_PATH"', self.converter._render_values(converted))
+        self.assertIn('requiredEnv "PROJECT_PATH"', self.converter._render_values(converted))
 
     def test_variable_directory_bind_uses_runtime_host_root(self) -> None:
         root = self.converter.compose_dir
@@ -410,7 +414,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         values = self.converter._render_values(converted)
         self.assertIn("mountPath: /tmp/rosbags", values)
         self.assertIn('env "BAG_DIRECTORY"', values)
-        self.assertIn('requiredEnv "OPENADSIM_PATH"', values)
+        self.assertIn('requiredEnv "PROJECT_PATH"', values)
 
     def test_fixed_binary_file_is_copied_beside_generated_values(self) -> None:
         root = self.converter.compose_dir
@@ -432,7 +436,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertFalse(config_sources)
         self.assertEqual(file_sources, {"model.bin": source})
         self.assertFalse(directories)
-        self.assertIn('requiredEnv "OPENADSIM_PATH"', volumes[0]["hostPath"])
+        self.assertIn('requiredEnv "PROJECT_PATH"', volumes[0]["hostPath"])
         service = ConvertedService(
             name="binary-service",
             release_name="binary-service",
@@ -520,7 +524,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             "assets/shared-service",
         )
         self.assertEqual([volume["mountPath"] for volume in volumes], ["/keep"])
-        self.assertIn('requiredEnv "OPENADSIM_PATH"', volumes[0]["hostPath"])
+        self.assertIn('requiredEnv "PROJECT_PATH"', volumes[0]["hostPath"])
         self.assertNotIn("assets/shared-service", volumes[0]["hostPath"])
         self.assertFalse(directories)
 

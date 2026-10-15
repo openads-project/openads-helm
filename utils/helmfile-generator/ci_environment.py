@@ -9,8 +9,9 @@ import secrets
 import shlex
 from pathlib import Path
 
-import yaml
 from dotenv import dotenv_values
+
+from helmfile_generator import HOST_PATH_ROOT_ENV
 
 
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -55,7 +56,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--compose-file", type=Path, required=True)
     parser.add_argument("--env-file", type=Path)
-    parser.add_argument("--chart-map", type=Path)
     parser.add_argument("--profiles", default="")
     parser.add_argument("--workspace", type=Path, required=True)
     destination = parser.add_mutually_exclusive_group(required=True)
@@ -75,12 +75,7 @@ def main() -> None:
     if args.profiles:
         values["COMPOSE_PROFILES"] = args.profiles
 
-    if args.chart_map:
-        chart_map = yaml.safe_load(args.chart_map.read_text(encoding="utf-8")) or {}
-        runtime_env = chart_map.get("runtime_env", {})
-        host_path_root_env = runtime_env.get("host_path_root")
-        if host_path_root_env:
-            values.setdefault(host_path_root_env, str(args.workspace.resolve()))
+    values.setdefault(HOST_PATH_ROOT_ENV, str(args.workspace.resolve()))
 
     if args.github_env:
         _write_github_env(args.github_env, values)

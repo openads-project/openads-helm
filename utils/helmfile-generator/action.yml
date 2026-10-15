@@ -56,7 +56,6 @@ runs:
       env:
         COMPOSE_FILE_INPUT: ${{ inputs.compose-file }}
         ENV_FILE_INPUT: ${{ inputs.env-file }}
-        CHART_MAP_INPUT: ${{ inputs.chart-map }}
         PROFILES_INPUT: ${{ inputs.profiles }}
       run: |
         set -euo pipefail
@@ -68,9 +67,6 @@ runs:
         )
         if [[ -n "$ENV_FILE_INPUT" ]]; then
           arguments+=(--env-file "$ENV_FILE_INPUT")
-        fi
-        if [[ -n "$CHART_MAP_INPUT" ]]; then
-          arguments+=(--chart-map "$CHART_MAP_INPUT")
         fi
         python "$GITHUB_ACTION_PATH/ci_environment.py" "${arguments[@]}"
 

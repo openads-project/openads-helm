@@ -41,10 +41,6 @@ The generator targets charts built on the `openadservice` base chart: values are
 Without a map entry, a GHCR image `ghcr.io/<owner>/<repository>:v<X.Y.Z>…` is mapped to the release chart `oci://ghcr.io/<owner>/<repository>/helm/<chart>` at version `<X.Y.Z>`. An image tagged `latest`, `latest-slim` or similar is a default-branch build; it is mapped to the newest `<X.Y.Z>-main` version of that chart, read from the registry's tag list. Services that use another chart or version need an explicit entry. Map keys are full Compose service names, including group prefixes such as `perception.service-name`. Unknown top-level keys are rejected.
 
 ```yaml
-runtime_env:
-  name_prefix: DEPLOYMENT_PREFIX
-  node: NODE
-  host_path_root: PROJECT_PATH
 excluded_profiles: [gui]
 volume_policies:
   recorder:
@@ -64,7 +60,7 @@ services:
           replace: new-endpoint
 ```
 
-`runtime_env` names the environment variables read when Helmfile runs; each is optional. `name_prefix` prefixes Helm release names and writes `namePrefix` values. `node` writes a node selector. `host_path_root` resolves repository-relative host paths. `dependency_port_env` makes a dependent service wait on a runtime port expression from the named service's Compose environment.
+Generated output reads these environment variables when Helmfile runs: `DEPLOYMENT_PREFIX` (optional) prefixes Helm release names and writes `namePrefix` values. `NODE` (optional) writes a `kubernetes.io/hostname` node selector. `PROJECT_PATH` is the absolute path of the Compose directory on the node and resolves host paths below it; Helmfile fails if it is unset and a `hostPath` volume uses it. CI sets `PROJECT_PATH` to the workspace unless the env file defines it. `dependency_port_env` makes a dependent service wait on a runtime port expression from the named service's Compose environment.
 
 Fixed bind sources are copied by default. Use `volume_policies` with `copy`, `hostPath`, or `omit` for a specific service and mount target. Compose environment substitutions remain runtime Helmfile expressions where needed. Review generated values before deployment, especially host paths and exposed ports.
 

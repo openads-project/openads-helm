@@ -8,20 +8,13 @@ from ci_environment import main
 
 
 class CiEnvironmentTest(unittest.TestCase):
-    def test_exports_profiles_overrides_and_generic_host_root(self) -> None:
+    def test_exports_profiles_overrides_and_host_path_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose_file = root / "compose.yaml"
             compose_file.write_text("services: {}\n", encoding="utf-8")
             (root / ".env").write_text(
                 "COMPOSE_PROFILES=default\nREQUIRED_VALUE=value\n",
-                encoding="utf-8",
-            )
-            chart_map = root / "chart-map.yaml"
-            chart_map.write_text(
-                "runtime_env:\n"
-                "  name_prefix: DEPLOYMENT_PREFIX\n"
-                "  host_path_root: PROJECT_ROOT\n",
                 encoding="utf-8",
             )
             github_env = root / "github-env"
@@ -32,8 +25,6 @@ class CiEnvironmentTest(unittest.TestCase):
                     "ci_environment.py",
                     "--compose-file",
                     str(compose_file),
-                    "--chart-map",
-                    str(chart_map),
                     "--profiles",
                     "traffic,planning",
                     "--workspace",
@@ -48,7 +39,8 @@ class CiEnvironmentTest(unittest.TestCase):
             self.assertIn("COMPOSE_PROFILES<<", exported)
             self.assertIn("traffic,planning", exported)
             self.assertIn("REQUIRED_VALUE<<", exported)
-            self.assertIn("PROJECT_ROOT<<", exported)
+            self.assertIn("PROJECT_PATH<<", exported)
+            self.assertIn(str(root.resolve()), exported)
             self.assertNotIn("DEPLOYMENT_PREFIX", exported)
 
     def test_rejects_ci_environment_override(self) -> None:
