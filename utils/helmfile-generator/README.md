@@ -36,23 +36,16 @@ The action requires `output-dir` to be a directory below the caller workspace. I
 
 ## Chart map
 
-Without a map, GHCR images are mapped to the matching `oci://ghcr.io/<owner>/<repository>/helm/<chart>` reference using the image version. Services that use another chart or version need an explicit entry. Map keys are full Compose service names, including group prefixes such as `perception.service-name`.
+The generator targets charts built on the `openadservice` base chart: values are written below `openadservice:`, mounted YAML files containing `ros__parameters` become `rosParamFileData`, and the chart renders `ZENOH_CONFIG_OVERRIDE` itself.
+
+Without a map entry, a GHCR image `ghcr.io/<owner>/<repository>:v<X.Y.Z>…` is mapped to the release chart `oci://ghcr.io/<owner>/<repository>/helm/<chart>` at version `<X.Y.Z>`. An image tagged `latest`, `latest-slim` or similar is a default-branch build; it is mapped to the newest `<X.Y.Z>-main` version of that chart, read from the registry's tag list. Services that use another chart or version need an explicit entry. Map keys are full Compose service names, including group prefixes such as `perception.service-name`. Unknown top-level keys are rejected.
 
 ```yaml
-values_root: service
-chart_version_suffix: -main
-parameter_file:
-  yaml_marker: application_parameters
-  value_key: parameterFileData
-  mount_path_value_key: parameterFileMountPath
-  output_filename: parameters.yaml
-deployment:
-  name_prefix_env: DEPLOYMENT_PREFIX
-  node_env: NODE
-  host_path_root_env: PROJECT_PATH
+runtime_env:
+  name_prefix: DEPLOYMENT_PREFIX
+  node: NODE
+  host_path_root: PROJECT_PATH
 excluded_profiles: [gui]
-ignored_environment: [CUSTOM_CONFIG_OVERRIDE]
-ignored_volume_names: [generated-config.json]
 volume_policies:
   recorder:
     /records: hostPath
@@ -71,9 +64,7 @@ services:
           replace: new-endpoint
 ```
 
-`deployment` settings are optional. `name_prefix_env` prefixes Helm release names and writes `namePrefix` values. `node_env` writes a node selector. `host_path_root_env` resolves repository-relative host paths when Helmfile runs. `dependency_port_env` makes a dependent service wait on a runtime port expression from the named service's Compose environment.
-
-`values_root` selects a nested chart values mapping. Leave it unset for charts that take values at the YAML root. `parameter_file` configures detection and embedding of mounted YAML parameter files.
+`runtime_env` names the environment variables read when Helmfile runs; each is optional. `name_prefix` prefixes Helm release names and writes `namePrefix` values. `node` writes a node selector. `host_path_root` resolves repository-relative host paths. `dependency_port_env` makes a dependent service wait on a runtime port expression from the named service's Compose environment.
 
 Fixed bind sources are copied by default. Use `volume_policies` with `copy`, `hostPath`, or `omit` for a specific service and mount target. Compose environment substitutions remain runtime Helmfile expressions where needed. Review generated values before deployment, especially host paths and exposed ports.
 

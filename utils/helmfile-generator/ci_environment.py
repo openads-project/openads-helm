@@ -77,8 +77,8 @@ def main() -> None:
 
     if args.chart_map:
         chart_map = yaml.safe_load(args.chart_map.read_text(encoding="utf-8")) or {}
-        deployment = chart_map.get("deployment", {})
-        host_path_root_env = deployment.get("host_path_root_env")
+        runtime_env = chart_map.get("runtime_env", {})
+        host_path_root_env = runtime_env.get("host_path_root")
         if host_path_root_env:
             values.setdefault(host_path_root_env, str(args.workspace.resolve()))
 

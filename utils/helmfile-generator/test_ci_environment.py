@@ -19,9 +19,9 @@ class CiEnvironmentTest(unittest.TestCase):
             )
             chart_map = root / "chart-map.yaml"
             chart_map.write_text(
-                "deployment:\n"
-                "  name_prefix_env: DEPLOYMENT_PREFIX\n"
-                "  host_path_root_env: PROJECT_ROOT\n",
+                "runtime_env:\n"
+                "  name_prefix: DEPLOYMENT_PREFIX\n"
+                "  host_path_root: PROJECT_ROOT\n",
                 encoding="utf-8",
             )
             github_env = root / "github-env"

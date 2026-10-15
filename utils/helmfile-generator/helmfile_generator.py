@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -33,9 +35,25 @@ DEFAULT_ENV_VARS = {
     "__NV_PRIME_RENDER_OFFLOAD",
     "__GLX_VENDOR_LIBRARY_NAME",
     "XAUTHORITY",
+    # The openadservice chart renders this from rmw.zenoh, including the
+    # prefixed router endpoint. Compose's fixed endpoint must not override it.
+    "ZENOH_CONFIG_OVERRIDE",
 }
 
 IGNORED_VOLUME_TARGETS = {"/etc/localtime", "/etc/timezone", "/dev/null"}
+
+# Generated values target charts built on the openadservice base chart.
+VALUES_ROOT = "openadservice"
+# Images tagged latest (or latest-slim, latest-dev, ...) are default-branch
+# builds. Their chart is the newest <X.Y.Z>-main version in the registry.
+LATEST_IMAGE_TAG = re.compile(r"latest(?:-[A-Za-z0-9]+)*")
+MAIN_CHART_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)-main")
+# Mounted YAML files containing this key become the chart's ROS parameter file.
+ROS_PARAM_FILE_MARKER = "ros__parameters"
+ROS_PARAM_FILE_NAME = "params.yml"
+
+CHART_MAP_KEYS = {"runtime_env", "excluded_profiles", "volume_policies", "services"}
+RUNTIME_ENV_KEYS = ("name_prefix", "node", "host_path_root")
 
 
 class ConversionError(RuntimeError):
@@ -110,6 +128,7 @@ class ComposeToHelmfileConverter:
         self.output_dir = output_dir.resolve()
         self.verbose = verbose
         self.chart_values_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self.registry_tags_cache: dict[str, list[str]] = {}
         self.raw_services: dict[str, dict[str, Any]] = {}
         self.raw_service_sources: dict[str, Path] = {}
         self.source_service_counts: dict[Path, int] = {}
@@ -120,6 +139,11 @@ class ComposeToHelmfileConverter:
             loaded_map = yaml.safe_load(chart_map.read_text()) or {}
             if not isinstance(loaded_map, dict):
                 raise ConversionError("chart map must be a mapping")
+            unknown_keys = sorted(set(loaded_map) - CHART_MAP_KEYS)
+            if unknown_keys:
+                raise ConversionError(
+                    "unknown chart map keys: " + ", ".join(map(str, unknown_keys))
+                )
             self.chart_map = loaded_map
         self.service_mappings = self.chart_map.get("services", {})
         if not isinstance(self.service_mappings, dict):
@@ -139,46 +163,18 @@ class ComposeToHelmfileConverter:
         ):
             raise ConversionError("excluded_profiles must be a list of profile names")
         self.excluded_profiles = frozenset(excluded_profiles)
-        for key in ("ignored_environment", "ignored_volume_names"):
-            names = self.chart_map.get(key, [])
-            if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
-                raise ConversionError(f"{key} must be a list of names")
-        self.ignored_environment = DEFAULT_ENV_VARS | set(self.chart_map.get("ignored_environment", []))
-        self.ignored_volume_names = set(self.chart_map.get("ignored_volume_names", []))
-        self.deployment = self.chart_map.get("deployment", {})
-        if not isinstance(self.deployment, dict):
-            raise ConversionError("deployment must be a mapping")
-        for key in ("name_prefix_env", "node_env", "host_path_root_env"):
-            value = self.deployment.get(key)
+        self.runtime_env = self.chart_map.get("runtime_env", {})
+        if not isinstance(self.runtime_env, dict):
+            raise ConversionError("runtime_env must be a mapping")
+        unknown_runtime_keys = sorted(set(self.runtime_env) - set(RUNTIME_ENV_KEYS))
+        if unknown_runtime_keys:
+            raise ConversionError(
+                "unknown runtime_env keys: " + ", ".join(map(str, unknown_runtime_keys))
+            )
+        for key in RUNTIME_ENV_KEYS:
+            value = self.runtime_env.get(key)
             if value is not None and (not isinstance(value, str) or not value):
-                raise ConversionError(f"deployment.{key} must be an environment variable name")
-        self.chart_version_suffix = self.chart_map.get("chart_version_suffix", "")
-        if not isinstance(self.chart_version_suffix, str):
-            raise ConversionError("chart_version_suffix must be a string")
-        self.values_root = self.chart_map.get("values_root", "")
-        if not isinstance(self.values_root, str):
-            raise ConversionError("values_root must be a string")
-        self.parameter_file = self.chart_map.get("parameter_file")
-        if self.parameter_file is not None:
-            required_keys = {
-                "yaml_marker",
-                "value_key",
-                "mount_path_value_key",
-                "output_filename",
-            }
-            if (
-                not isinstance(self.parameter_file, dict)
-                or set(self.parameter_file) != required_keys
-                or any(
-                    not isinstance(self.parameter_file[key], str)
-                    or not self.parameter_file[key]
-                    for key in required_keys
-                )
-            ):
-                raise ConversionError(
-                    "parameter_file must contain yaml_marker, value_key, "
-                    "mount_path_value_key, and output_filename strings"
-                )
+                raise ConversionError(f"runtime_env.{key} must be an environment variable name")
         for service_name, mapping in self.service_mappings.items():
             value_rules = mapping.get("value_replacements", {})
             if not isinstance(value_rules, dict):
@@ -572,6 +568,15 @@ class ComposeToHelmfileConverter:
             )
 
         tag = match.group("tag")
+        chart_name = self._sanitize_name(match.group("repository"))
+        chart_repository = (
+            f"{match.group('owner')}/{match.group('repository')}/helm/{chart_name}"
+        )
+        if LATEST_IMAGE_TAG.fullmatch(tag):
+            return ChartRef(
+                url=f"oci://ghcr.io/{chart_repository}",
+                version=self._latest_main_chart_version(chart_repository),
+            )
         version_match = re.match(r"v?(\d+\.\d+\.\d+)", tag)
         version = (
             version_match.group(1)
@@ -582,14 +587,51 @@ class ComposeToHelmfileConverter:
             raise ConversionError(
                 f"{service_name}: image '{image}' has no usable version tag"
             )
-        chart_name = self._sanitize_name(match.group("repository"))
-        return ChartRef(
-            url=(
-                f"oci://ghcr.io/{match.group('owner')}/{match.group('repository')}"
-                f"/helm/{chart_name}"
-            ),
-            version=f"{version}{self.chart_version_suffix}",
-        )
+        return ChartRef(url=f"oci://ghcr.io/{chart_repository}", version=version)
+
+    def _latest_main_chart_version(self, repository: str) -> str:
+        versions = [
+            match
+            for tag in self._registry_tags(repository)
+            if (match := MAIN_CHART_VERSION.fullmatch(tag))
+        ]
+        if not versions:
+            raise ChartUnavailableError(
+                f"no -main chart available at oci://ghcr.io/{repository}; "
+                "add an explicit chart mapping"
+            )
+        return max(versions, key=lambda match: tuple(map(int, match.groups()))).group(0)
+
+    def _registry_tags(self, repository: str) -> list[str]:
+        if repository in self.registry_tags_cache:
+            return self.registry_tags_cache[repository]
+        try:
+            with urllib.request.urlopen(
+                f"https://ghcr.io/token?scope=repository:{repository}:pull",
+                timeout=30,
+            ) as response:
+                token = json.load(response)["token"]
+            request = urllib.request.Request(
+                f"https://ghcr.io/v2/{repository}/tags/list?n=1000",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                tags = json.load(response).get("tags") or []
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise ChartUnavailableError(
+                    f"no chart available at oci://ghcr.io/{repository}; "
+                    "add an explicit chart mapping"
+                ) from exc
+            raise ConversionError(
+                f"cannot list chart versions of ghcr.io/{repository}: {exc}"
+            ) from exc
+        except (OSError, ValueError, KeyError) as exc:
+            raise ConversionError(
+                f"cannot list chart versions of ghcr.io/{repository}: {exc}"
+            ) from exc
+        self.registry_tags_cache[repository] = tags
+        return tags
 
     def _chart_defaults(self, chart: ChartRef) -> dict[str, Any]:
         key = (chart.url, chart.version)
@@ -659,7 +701,7 @@ class ComposeToHelmfileConverter:
             raise ConversionError(
                 f"chart {chart.url} {chart.version} returned invalid values YAML: {exc}"
             ) from exc
-        defaults = values.get(self.values_root) if self.values_root else values
+        defaults = values.get(VALUES_ROOT)
         if not isinstance(defaults, dict):
             raise ConversionError(
                 f"chart {chart.url} {chart.version} has no mapping at values_root"
@@ -722,7 +764,7 @@ class ComposeToHelmfileConverter:
         for key in ordered_keys:
             if (
                 key not in raw_environment
-                or key in self.ignored_environment
+                or key in DEFAULT_ENV_VARS
                 or key in ignored_keys
                 or raw_environment[key] is None
             ):
@@ -874,7 +916,7 @@ class ComposeToHelmfileConverter:
             relative = source.relative_to(self.compose_dir)
         except ValueError:
             return self._go_string(str(source))
-        root_env = self.deployment.get("host_path_root_env")
+        root_env = self.runtime_env.get("host_path_root")
         if not root_env:
             return self._go_string(str(source))
         if relative == Path("."):
@@ -886,7 +928,7 @@ class ComposeToHelmfileConverter:
         )
 
     def _host_path_value(self, source: Path) -> str:
-        if not source.resolve().is_relative_to(self.compose_dir) or not self.deployment.get("host_path_root_env"):
+        if not source.resolve().is_relative_to(self.compose_dir) or not self.runtime_env.get("host_path_root"):
             return str(source)
         expression = self._host_root_expression(source)
         return f'{{{{ {expression} | quote }}}}'
@@ -976,7 +1018,6 @@ class ComposeToHelmfileConverter:
             if (
                 target in (runtime_targets or set())
                 or target in IGNORED_VOLUME_TARGETS
-                or source.name in self.ignored_volume_names
                 or "/tmp/.X11-unix" in target
                 or ".Xauthority" in target
             ):
@@ -989,19 +1030,16 @@ class ComposeToHelmfileConverter:
                 volumes.append({"mountPath": target, "hostPath": self._host_path_value(source)})
                 continue
             if (
-                self.parameter_file
-                and source.is_file()
+                source.is_file()
                 and source.suffix.lower() in {".yml", ".yaml"}
-                and self._contains_yaml_key(
-                    source, self.parameter_file["yaml_marker"]
-                )
+                and self._contains_yaml_key(source, ROS_PARAM_FILE_MARKER)
             ):
                 if param_source is not None:
                     raise ConversionError(
                         f"{service_name}: multiple parameter files are mounted"
                     )
                 param_source = source
-                param_filename = self.parameter_file["output_filename"]
+                param_filename = ROS_PARAM_FILE_NAME
                 continue
             # Small text files become ConfigMaps. Other fixed files are copied
             # beside the values and mounted from that generated location.
@@ -1206,9 +1244,8 @@ class ComposeToHelmfileConverter:
         if volumes:
             values["volumes"] = volumes
         if param_source and param_filename:
-            assert self.parameter_file is not None
-            values[self.parameter_file["value_key"]] = param_filename
-            values[self.parameter_file["mount_path_value_key"]] = next(
+            values["rosParamFileData"] = param_filename
+            values["rosParamFileMountPath"] = next(
                 v["target"] for v in service.get("volumes", [])
                 if v.get("type") == "bind" and Path(v["source"]) == param_source
             )
@@ -1257,7 +1294,7 @@ class ComposeToHelmfileConverter:
             key: value
             for key, value in raw_environment.items()
             if (
-                key not in self.ignored_environment
+                key not in DEFAULT_ENV_VARS
                 and self._contains_host_expression(value)
             )
         }
@@ -1297,7 +1334,7 @@ class ComposeToHelmfileConverter:
         self, services: list[ConvertedService]
     ) -> str:
         template = self.jinja_env.get_template("helmfile.j2")
-        return template.render(services=services, prefix_env=self.deployment.get("name_prefix_env"))
+        return template.render(services=services, prefix_env=self.runtime_env.get("name_prefix"))
 
     def _render_services(self, services: list[ConvertedService]) -> str:
         template = self.jinja_env.get_template("services.yaml.gotmpl.j2")
@@ -1376,13 +1413,11 @@ class ComposeToHelmfileConverter:
         values = template_host_values(values)
 
         if service.param_source and service.param_filename:
-            assert self.parameter_file is not None
-            value_key = self.parameter_file["value_key"]
             filename = service.param_filename
-            values[value_key] = template_value(
+            values["rosParamFileData"] = template_value(
                 f"readFile {self._go_string(filename)} | indent 4", quote=False
             )
-            replacements[values[value_key]] = (
+            replacements[values["rosParamFileData"]] = (
                 f'|\n{{{{ readFile {self._go_string(filename)} | indent 4 }}}}'
             )
 
@@ -1446,34 +1481,27 @@ class ComposeToHelmfileConverter:
                 ]
 
         content = yaml.safe_dump(
-            {self.values_root: values} if self.values_root else values,
+            {VALUES_ROOT: values},
             allow_unicode=True,
             sort_keys=False,
             width=1000,
         )
-        root_key = f"{self.values_root}:\n" if self.values_root else ""
-        if self.values_root and content == f"{self.values_root}: {{}}\n":
+        root_key = f"{VALUES_ROOT}:\n"
+        if content == f"{VALUES_ROOT}: {{}}\n":
             content = root_key
-        prefix_env = self.deployment.get("name_prefix_env")
-        node_env = self.deployment.get("node_env")
-        deployment_values = ""
+        prefix_env = self.runtime_env.get("name_prefix")
+        node_env = self.runtime_env.get("node")
+        runtime_values = ""
         if prefix_env:
-            deployment_values += f'  namePrefix: {{{{ env {self._go_string(prefix_env)} | quote }}}}\n'
+            runtime_values += f'  namePrefix: {{{{ env {self._go_string(prefix_env)} | quote }}}}\n'
         if node_env:
-            deployment_values += (
+            runtime_values += (
                 f'{{{{- if env {self._go_string(node_env)} }}}}\n'
                 "  nodeSelector:\n"
                 f'    kubernetes.io/hostname: {{{{ env {self._go_string(node_env)} | quote }}}}\n'
                 "{{- end }}\n"
             )
-        if root_key:
-            content = content.replace(root_key, root_key + deployment_values, 1)
-        elif deployment_values:
-            root_values = "".join(
-                line[2:] if line.startswith("  ") else line
-                for line in deployment_values.splitlines(keepends=True)
-            )
-            content = root_values + content
+        content = content.replace(root_key, root_key + runtime_values, 1)
         for marker, replacement in replacements.items():
             content = content.replace(marker, replacement)
         return content

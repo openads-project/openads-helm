@@ -3,7 +3,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from helmfile_generator import ChartRef, ComposeToHelmfileConverter, ConvertedService
+from helmfile_generator import (
+    ChartRef,
+    ChartUnavailableError,
+    ComposeToHelmfileConverter,
+    ConversionError,
+    ConvertedService,
+)
 
 
 class HostEnvironmentRenderingTest(unittest.TestCase):
@@ -12,7 +18,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         root = Path(self.temp_dir.name)
         chart_map = root / "chart-map.yaml"
         chart_map.write_text(
-            'values_root: openadservice\nparameter_file:\n  yaml_marker: ros__parameters\n  value_key: rosParamFileData\n  mount_path_value_key: rosParamFileMountPath\n  output_filename: params.yml\ndeployment:\n  name_prefix_env: DEPLOYMENT_PREFIX\n  node_env: NODE\n  host_path_root_env: OPENADSIM_PATH\n'
+            'runtime_env:\n  name_prefix: DEPLOYMENT_PREFIX\n  node: NODE\n  host_path_root: OPENADSIM_PATH\n'
             'services:\n  carla-server:\n    chart: oci://example.test/carla-server\n    version: 1.0.0\n    dependency_port_env: CARLA_PORT\n'
             '  carla-ros-bridge:\n    chart: oci://example.test/carla-ros-bridge\n    version: 1.0.0\n'
         )
@@ -49,6 +55,44 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             generic._chart_ref("api", "ghcr.io/example/api:v1.2.3").version,
             "1.2.3",
         )
+
+    def test_latest_image_uses_newest_main_chart(self) -> None:
+        tags = ["1.10.0-main", "1.9.0-main", "2.0.0", "2.0.0-feature", "latest"]
+        with patch.object(self.converter, "_registry_tags", return_value=tags) as registry:
+            for image in (
+                "ghcr.io/example/api_server:latest",
+                "ghcr.io/example/api_server:latest-slim",
+            ):
+                self.assertEqual(
+                    self.converter._chart_ref("api", image),
+                    ChartRef("oci://ghcr.io/example/api_server/helm/api-server", "1.10.0-main"),
+                )
+        registry.assert_called_with("example/api_server/helm/api-server")
+
+    def test_latest_image_without_main_chart_is_unavailable(self) -> None:
+        with (
+            patch.object(self.converter, "_registry_tags", return_value=["1.0.0"]),
+            self.assertRaisesRegex(ChartUnavailableError, "no -main chart"),
+        ):
+            self.converter._chart_ref("api", "ghcr.io/example/api:latest")
+
+    def test_branch_image_is_not_treated_as_latest(self) -> None:
+        with patch.object(self.converter, "_registry_tags") as registry:
+            self.assertEqual(
+                self.converter._chart_ref("api", "ghcr.io/example/api:latest_feature_ci").version,
+                "latest_feature_ci",
+            )
+        registry.assert_not_called()
+
+    def test_rejects_unknown_chart_map_keys(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "legacy-chart-map.yaml"
+        chart_map.write_text("deployment:\n  name_prefix_env: DEPLOYMENT_PREFIX\n")
+        with self.assertRaisesRegex(ConversionError, "unknown chart map keys: deployment"):
+            ComposeToHelmfileConverter(
+                compose_file=root / "compose.yml", profiles=[],
+                output_dir=root / "output", chart_map=chart_map,
+            )
 
     def test_dependency_port_rule_applies_to_arbitrary_service(self) -> None:
         self.converter.chart_map["services"]["api"] = {"dependency_port_env": "API_PORT"}
