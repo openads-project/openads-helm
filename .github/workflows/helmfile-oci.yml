@@ -71,7 +71,7 @@ on:
         description: Caller-relative directory represented by the archive contents.
         value: ${{ jobs.generate.outputs.bundle-dir }}
       oci-reference:
-        description: OCI repository receiving default-branch, version-tag, and manual builds.
+        description: OCI repository receiving default-branch and version-tag builds.
         value: ${{ jobs.generate.outputs.oci-reference }}
 
 permissions:
@@ -226,12 +226,9 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
             publish=true
             tags+=("${DEFAULT_BRANCH//\//-}" "sha-${GITHUB_SHA}")
-          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/tags/$GITHUB_REF_NAME" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             publish=true
             tags+=("$GITHUB_REF_NAME" "sha-${GITHUB_SHA}")
-          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            publish=true
-            tags+=("${GITHUB_REF_NAME//\//-}" "sha-${GITHUB_SHA}")
           fi
           {
             echo "oci-reference=$repository"

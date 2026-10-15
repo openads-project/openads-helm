@@ -223,9 +223,6 @@ spec:
     elif [[ "$CI_PIPELINE_SOURCE" == "push" && "${CI_COMMIT_TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       publish=true
       tags+=("$CI_COMMIT_TAG" "sha-${CI_COMMIT_SHA}")
-    elif [[ "$CI_PIPELINE_SOURCE" == "web" ]]; then
-      publish=true
-      tags+=("$CI_COMMIT_REF_SLUG" "sha-${CI_COMMIT_SHA}")
     fi
     if [[ "$publish" == "true" && -z "$oci_reference" ]]; then
       echo "Container registry is disabled for ${CI_PROJECT_PATH}; skipping OCI publication" >&2
