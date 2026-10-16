@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.error
 import urllib.request
@@ -627,20 +629,85 @@ class ComposeToHelmfileConverter:
         self.registry_tags_cache[repository] = tags
         return tags
 
+    @staticmethod
+    def _archive_root(archive: tarfile.TarFile) -> str:
+        roots = [
+            member.name.rsplit("/", 1)[0]
+            for member in archive.getmembers()
+            if member.isfile()
+            and len(PurePosixPath(member.name).parts) == 2
+            and PurePosixPath(member.name).name == "Chart.yaml"
+        ]
+        if len(roots) != 1:
+            raise ConversionError("chart archive must contain one root Chart.yaml")
+        return roots[0]
+
+    @classmethod
+    def _chart_values(cls, archive: tarfile.TarFile, root: str) -> dict[str, Any]:
+        """Include the bundled base chart's defaults, then apply parent values."""
+        def read_yaml(path: str) -> dict[str, Any]:
+            try:
+                source = archive.extractfile(f"{root}/{path}")
+            except KeyError:
+                return {}
+            if source is None:
+                raise ConversionError(f"chart entry is not a file: {path}")
+            with source:
+                data = yaml.safe_load(source) or {}
+            if not isinstance(data, dict):
+                raise ConversionError(f"chart entry must be a mapping: {path}")
+            return data
+
+        values = read_yaml("values.yaml")
+        for dependency in read_yaml("Chart.yaml").get("dependencies", []):
+            name = dependency["name"]
+            if dependency.get("alias", name) != VALUES_ROOT:
+                continue
+            base_values = None
+            unpacked_root = f"{root}/charts/{name}"
+            if f"{unpacked_root}/Chart.yaml" in archive.getnames():
+                base_values = cls._chart_values(archive, unpacked_root)
+            else:
+                for member in archive.getmembers():
+                    if (
+                        not member.isfile()
+                        or PurePosixPath(member.name).parent != PurePosixPath(root) / "charts"
+                        or not PurePosixPath(member.name).name.startswith(f"{name}-")
+                        or not member.name.endswith(".tgz")
+                    ):
+                        continue
+                    with archive.extractfile(member) as source:
+                        with tarfile.open(fileobj=io.BytesIO(source.read()), mode="r:gz") as child:
+                            base_values = cls._chart_values(child, cls._archive_root(child))
+                    break
+            if base_values is None:
+                raise ConversionError(f"chart has no bundled dependency: {name}")
+            overrides = values.get(VALUES_ROOT, {})
+            if isinstance(overrides, dict):
+                values[VALUES_ROOT] = cls._merge_values(base_values, overrides)
+        return values
+
     def _chart_defaults(self, chart: ChartRef) -> dict[str, Any]:
         key = (chart.url, chart.version)
         if key in self.chart_values_cache:
             return self.chart_values_cache[key]
+        with tempfile.TemporaryDirectory(prefix="compose-to-helmfile-chart-") as temp_dir:
+            defaults = self._fetch_chart_defaults(chart, Path(temp_dir))
+        self.chart_values_cache[key] = defaults
+        return defaults
+
+    def _fetch_chart_defaults(self, chart: ChartRef, destination: Path) -> dict[str, Any]:
         command = [
             "helm",
-            "show",
-            "values",
+            "pull",
             chart.url,
             "--version",
             chart.version,
+            "--destination",
+            str(destination),
         ]
         try:
-            result = subprocess.run(
+            subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
@@ -660,7 +727,7 @@ class ComposeToHelmfileConverter:
                 environment = os.environ.copy()
                 environment["HELM_REGISTRY_CONFIG"] = str(registry_config)
                 try:
-                    result = subprocess.run(
+                    subprocess.run(
                         command,
                         capture_output=True,
                         text=True,
@@ -689,18 +756,21 @@ class ComposeToHelmfileConverter:
                         f"{chart.version}: {detail}"
                     ) from retry_exc
 
+        archives = list(destination.glob("*.tgz"))
+        if len(archives) != 1:
+            raise ConversionError(f"expected one downloaded chart for {chart.url}")
         try:
-            values = yaml.safe_load(result.stdout)
-        except yaml.YAMLError as exc:
+            with tarfile.open(archives[0], mode="r:gz") as archive:
+                values = self._chart_values(archive, self._archive_root(archive))
+        except (OSError, tarfile.TarError, yaml.YAMLError) as exc:
             raise ConversionError(
-                f"chart {chart.url} {chart.version} returned invalid values YAML: {exc}"
+                f"cannot read chart {chart.url} {chart.version}: {exc}"
             ) from exc
         defaults = values.get(VALUES_ROOT)
         if not isinstance(defaults, dict):
             raise ConversionError(
                 f"chart {chart.url} {chart.version} has no mapping at values_root"
             )
-        self.chart_values_cache[key] = defaults
         return defaults
 
     @staticmethod
@@ -1355,7 +1425,7 @@ class ComposeToHelmfileConverter:
         def template_block(expression: str, indent: int) -> str:
             marker = template_value(expression, quote=False)
             replacements[marker] = (
-                f"|-\n{{{{ {expression} | indent {indent} }}}}"
+                f"|\n{{{{ {expression} | indent {indent} }}}}"
             )
             return marker
 
@@ -1367,11 +1437,8 @@ class ComposeToHelmfileConverter:
         def literal_block(value: str, indent: int) -> str:
             marker = f"__HELMFILE_GOTMPL_{len(replacements)}__"
             prefix = " " * indent
-            # Compose's `|` scalar supplies a final newline. Preserve it when
-            # the command ends in a shell continuation; using `|-` there turns
-            # the final backslash into a literal command-line argument.
-            block_header = "|" if value.endswith("\\") else "|-"
-            replacements[marker] = block_header + "\n" + "\n".join(
+            # Keep a final newline, including after shell continuations.
+            replacements[marker] = "|\n" + "\n".join(
                 prefix + line for line in value.splitlines()
             )
             return marker

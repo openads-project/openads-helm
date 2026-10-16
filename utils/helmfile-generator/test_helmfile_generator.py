@@ -1,7 +1,12 @@
+import io
+import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import yaml
 
 from helmfile_generator import (
     ChartRef,
@@ -273,6 +278,76 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         environment = self.converter._environment("bridge", resolved, defaults)
 
         self.assertEqual(list(environment), ["USE_SIM_TIME", "HOST", "PORT"])
+
+    def test_chart_defaults_include_bundled_base_and_service_overrides(self) -> None:
+        base_values = {
+            "env": {
+                "RMW_IMPLEMENTATION": "rmw_zenoh_cpp",
+                "RUST_LOG": "zenoh=warn",
+                "ZENOH_ROUTER_CHECK_ATTEMPTS": 0,
+            }
+        }
+        parent_values = {"openadservice": {"env": {"RUST_LOG": "zenoh=debug"}}}
+
+        def add_file(archive, name, content):
+            data = content.encode()
+            entry = tarfile.TarInfo(name)
+            entry.size = len(data)
+            archive.addfile(entry, io.BytesIO(data))
+
+        def fetch(command, **kwargs):
+            destination = Path(command[command.index("--destination") + 1])
+            with tarfile.open(destination / "service-1.0.0.tgz", "w:gz") as archive:
+                add_file(archive, "service/Chart.yaml", yaml.safe_dump({
+                    "name": "service", "dependencies": [{"name": "openadservice"}],
+                }))
+                add_file(archive, "service/values.yaml", yaml.safe_dump(parent_values))
+                if bundled:
+                    child_data = io.BytesIO()
+                    with tarfile.open(fileobj=child_data, mode="w:gz") as child:
+                        add_file(child, "openadservice/Chart.yaml", "name: openadservice\n")
+                        add_file(child, "openadservice/values.yaml", yaml.safe_dump(base_values))
+                    child_bytes = child_data.getvalue()
+                    entry = tarfile.TarInfo("service/charts/openadservice-1.2.0.tgz")
+                    entry.size = len(child_bytes)
+                    archive.addfile(entry, io.BytesIO(child_bytes))
+                else:
+                    add_file(archive, "service/charts/openadservice/Chart.yaml", "name: openadservice\n")
+                    add_file(archive, "service/charts/openadservice/values.yaml", yaml.safe_dump(base_values))
+
+        chart = ChartRef("oci://example.test/service", "1.0.0")
+        for bundled in (False, True):
+            with self.subTest(bundled=bundled):
+                self.converter.chart_values_cache.clear()
+                with patch("helmfile_generator.subprocess.run", side_effect=fetch) as download:
+                    defaults = self.converter._chart_defaults(chart)
+                    self.assertEqual(self.converter._chart_defaults(chart), defaults)
+                download.assert_called_once()
+                self.assertEqual(defaults["env"], {
+                    **base_values["env"], "RUST_LOG": "zenoh=debug",
+                })
+                self.converter.raw_services["service"] = {"environment": {
+                    **base_values["env"], "RUST_LOG": "${RUST_LOG:-zenoh=warn}",
+                }}
+                environment = self.converter._environment(
+                    "service", {"environment": base_values["env"]}, defaults,
+                )
+                self.assertEqual(environment, {"RUST_LOG": "zenoh=warn"})
+                self.converter.raw_services["service"] = {"environment": {
+                    "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+                }}
+                self.assertEqual(self.converter._environment(
+                    "service", self.converter.raw_services["service"], defaults,
+                ), {"RMW_IMPLEMENTATION": "rmw_fastrtps_cpp"})
+
+    def test_missing_chart_remains_chart_unavailable(self) -> None:
+        with (
+            patch("helmfile_generator.subprocess.run", side_effect=subprocess.CalledProcessError(
+                1, ["helm", "pull"], stderr="manifest unknown",
+            )),
+            self.assertRaises(ChartUnavailableError),
+        ):
+            self.converter._chart_defaults(ChartRef("oci://example.test/missing", "1.0.0"))
 
     def test_compose_source_override_tag_keeps_replacement_profiles(self) -> None:
         self.converter.compose_file.write_text(

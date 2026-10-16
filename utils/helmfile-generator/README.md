@@ -38,6 +38,8 @@ The action requires `output-dir` to be a directory below the caller workspace. I
 
 The generator targets charts built on the `openadservice` base chart: values are written below `openadservice:`, mounted YAML files containing `ros__parameters` become `rosParamFileData`, and the chart renders `ZENOH_CONFIG_OVERRIDE` itself.
 
+Default comparisons include the `openadservice` dependency bundled in the selected chart, with the service chart's values applied over it. Fixed environment values equal to those effective defaults are omitted; Compose environment expressions remain configurable when Helmfile runs.
+
 Without a map entry, a GHCR image `ghcr.io/<owner>/<repository>:v<X.Y.Z>…` is mapped to the release chart `oci://ghcr.io/<owner>/<repository>/helm/<chart>` at version `<X.Y.Z>`. An image tagged `latest`, `latest-slim` or similar is a default-branch build; it is mapped to the newest `<X.Y.Z>-main` version of that chart, read from the registry's tag list. Services that use another chart or version need an explicit entry. Map keys are full Compose service names, including group prefixes such as `perception.service-name`. Unknown top-level keys are rejected.
 
 ```yaml
@@ -62,6 +64,16 @@ services:
 
 Generated output reads these environment variables when Helmfile runs: `DEPLOYMENT_PREFIX` (optional) prefixes Helm release names and writes `namePrefix` values. `NODE` (optional) writes a `kubernetes.io/hostname` node selector. `PROJECT_PATH` is the absolute path of the Compose directory on the node and resolves host paths below it; Helmfile fails if it is unset and a `hostPath` volume uses it. CI sets `PROJECT_PATH` to the workspace unless the env file defines it. `dependency_port_env` makes a dependent service wait on a runtime port expression from the named service's Compose environment.
 
-Fixed bind sources are copied by default. Use `volume_policies` with `copy`, `hostPath`, or `omit` for a specific service and mount target. Compose environment substitutions remain runtime Helmfile expressions where needed. Review generated values before deployment, especially host paths and exposed ports.
+Fixed bind sources use the `copy` policy by default. This policy controls whether the source is included in the generated bundle; it does not specify a Kubernetes volume type:
+
+| Policy | Bundle contents | Kubernetes mount |
+| --- | --- | --- |
+| `copy` (default) | A copy of the source | ROS parameter YAML and UTF-8 text files smaller than 256 KiB without NUL bytes become ConfigMaps; other files and directories use a `hostPath` pointing to the bundled copy. |
+| `hostPath` | No copy | A `hostPath` pointing to the original source on the node, regardless of file size. |
+| `omit` | No copy | No mount. |
+
+Set `volume_policies` per service and mount target. An explicit `hostPath` policy takes precedence over ROS parameter detection and the text-file size check, so it can also keep a small CSV on the node. The `copy` policy still uses the automatic ConfigMap/hostPath selection above. ConfigMaps are read-only; use `hostPath` for writable or shared sources. Copied directories are separate for each service and do not preserve sharing of the original source.
+
+Detected runtime bind sources, such as supported variable-selected directories, can remain direct host paths without an explicit policy. Compose environment substitutions remain runtime Helmfile expressions where needed. Every `hostPath`, including one pointing to a bundled copy, requires its source to exist on the Kubernetes node; Helm does not transfer those files. Review generated values before deployment, especially host paths and exposed ports.
 
 An OpenADSim caller configuration is maintained in the [OpenADSim repository](https://github.com/openads-project/openadsim).
