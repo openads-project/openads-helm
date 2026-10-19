@@ -98,7 +98,7 @@ jobs:
 
       - name: Generate Helmfile
         id: generate
-        uses: $/utils/helmfile_generator
+        uses: $/utils/generate_helmfile_from_compose
         with:
           compose-file: ${{ inputs.compose-file }}
           env-file: ${{ inputs.env-file }}

@@ -37,7 +37,7 @@ spec:
       description: Stage of the generated job.
       default: build
     openads-helm-repository:
-      description: Git repository providing utils/helmfile_generator.
+      description: Git repository providing utils/generate_helmfile_from_compose.
       default: https://github.com/openads-project/openads-helm.git
     openads-helm-ref:
       description: Branch, tag, or commit of openads-helm-repository; use the same revision as this component.
@@ -86,12 +86,12 @@ spec:
     git init --quiet /opt/openads-helm
     git -C /opt/openads-helm fetch --quiet --depth 1 "$OPENADS_HELM_REPOSITORY" "$OPENADS_HELM_REF"
     git -C /opt/openads-helm checkout --quiet FETCH_HEAD
-    python -m pip install --disable-pip-version-check -r /opt/openads-helm/utils/helmfile_generator/requirements.txt
+    python -m pip install --disable-pip-version-check -r /opt/openads-helm/utils/generate_helmfile_from_compose/requirements.txt
   script:
   - |-
     # Load validation environment
     set -euo pipefail
-    generator_dir=/opt/openads-helm/utils/helmfile_generator
+    generator_dir=/opt/openads-helm/utils/generate_helmfile_from_compose
     workspace="$(realpath "$CI_PROJECT_DIR")"
     validation_env="$(mktemp)"
     arguments=(
@@ -138,7 +138,7 @@ spec:
       fi
     done < <(printf '%s' "$PROFILES_INPUT" | tr ',' '\n')
 
-    python "$generator_dir/scripts/helmfile_generator.py" "${arguments[@]}"
+    python "$generator_dir/scripts/generate_helmfile_from_compose.py" "${arguments[@]}"
 
     dotenv_file="${ENV_FILE_INPUT:-$(dirname "$COMPOSE_FILE_INPUT")/.env}"
     dotenv_name="$(basename "$dotenv_file")"

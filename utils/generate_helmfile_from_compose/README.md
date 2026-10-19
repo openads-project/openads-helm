@@ -7,7 +7,7 @@ This tool resolves a Docker Compose project with `docker compose config` and gen
 Install the Python requirements and make Docker Compose and Helm available, then run:
 
 ```sh
-python3 utils/helmfile_generator/scripts/helmfile_generator.py docker-compose.yml \
+python3 utils/generate_helmfile_from_compose/scripts/generate_helmfile_from_compose.py docker-compose.yml \
   --chart-map deployments/chart-map.yaml \
   --output-dir deployments/generated
 ```
@@ -21,7 +21,7 @@ The generator produces `helmfile.yaml`, `environments/services.yaml.gotmpl`, and
 The local composite action packages the runtime dependencies and is consumed by `.github/workflows/helmfile-oci.yml` at the same repository revision:
 
 ```yaml
-- uses: $/utils/helmfile_generator
+- uses: $/utils/generate_helmfile_from_compose
   with:
     compose-file: docker-compose.yml
     env-file: .env

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-from helmfile_generator import HOST_PATH_ROOT_ENV
+from generate_helmfile_from_compose import HOST_PATH_ROOT_ENV
 
 
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
@@ -39,7 +39,7 @@ def _write_github_env(destination: Path, values: dict[str, str]) -> None:
     _validate_names(values)
     with destination.open("a", encoding="utf-8") as output:
         for name, value in values.items():
-            delimiter = f"helmfile_generator_{secrets.token_hex(12)}"
+            delimiter = f"generate_helmfile_from_compose_{secrets.token_hex(12)}"
             if delimiter in value:
                 raise ValueError(f"cannot safely export environment variable: {name}")
             output.write(f"{name}<<{delimiter}\n{value}\n{delimiter}\n")

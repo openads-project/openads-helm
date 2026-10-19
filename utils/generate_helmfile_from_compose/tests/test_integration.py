@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from helmfile_generator import ComposeToHelmfileConverter, ConversionError
+from generate_helmfile_from_compose import ComposeToHelmfileConverter, ConversionError
 
 
 class ComposeFixtureIntegrationTest(unittest.TestCase):

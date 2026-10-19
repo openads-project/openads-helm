@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import yaml
 
-from helmfile_generator import (
+from generate_helmfile_from_compose import (
     ChartRef,
     ChartUnavailableError,
     ComposeToHelmfileConverter,
@@ -359,7 +359,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         for bundled in (False, True):
             with self.subTest(bundled=bundled):
                 self.converter.chart_values_cache.clear()
-                with patch("helmfile_generator.subprocess.run", side_effect=fetch) as download:
+                with patch("generate_helmfile_from_compose.subprocess.run", side_effect=fetch) as download:
                     defaults = self.converter._chart_defaults(chart)
                     self.assertEqual(self.converter._chart_defaults(chart), defaults)
                 download.assert_called_once()
@@ -382,7 +382,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
 
     def test_missing_chart_remains_chart_unavailable(self) -> None:
         with (
-            patch("helmfile_generator.subprocess.run", side_effect=subprocess.CalledProcessError(
+            patch("generate_helmfile_from_compose.subprocess.run", side_effect=subprocess.CalledProcessError(
                 1, ["helm", "pull"], stderr="manifest unknown",
             )),
             self.assertRaises(ChartUnavailableError),
