@@ -23,7 +23,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         root = Path(self.temp_dir.name)
         chart_map = root / "chart-map.yaml"
         chart_map.write_text(
-            'services:\n  carla-server:\n    chart: oci://example.test/carla-server\n    version: 1.0.0\n    dependency_port_env: CARLA_PORT\n'
+            'services:\n  carla-server:\n    chart: oci://example.test/carla-server\n    version: 1.0.0\n'
             '  carla-ros-bridge:\n    chart: oci://example.test/carla-ros-bridge\n    version: 1.0.0\n'
         )
         self.converter = ComposeToHelmfileConverter(
@@ -103,15 +103,15 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
                 output_dir=root / "output", chart_map=chart_map,
             )
 
-    def test_dependency_port_rule_applies_to_arbitrary_service(self) -> None:
-        self.converter.chart_map["services"]["api"] = {"dependency_port_env": "API_PORT"}
-        self.converter.raw_services["api"] = {
-            "environment": {"API_PORT": "${API_PORT:-8080}"}
-        }
-        self.assertEqual(
-            self.converter._depends_on({"depends_on": ["api"]}),
-            [{"host": "api", "port": "${API_PORT:-8080}"}],
-        )
+    def test_rejects_unknown_service_keys(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "legacy-chart-map.yaml"
+        chart_map.write_text("services:\n  api:\n    dependency_port_env: API_PORT\n")
+        with self.assertRaisesRegex(ConversionError, "api: unknown service keys: dependency_port_env"):
+            ComposeToHelmfileConverter(
+                compose_file=root / "compose.yml", profiles=[],
+                output_dir=root / "output", chart_map=chart_map,
+            )
 
     def test_compose_default_is_preserved(self) -> None:
         expression = self.converter._compose_expression("${MAP:-campus}")
@@ -291,16 +291,6 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             checks = self.converter._depends_on({"depends_on": ["carla-server"]})
 
         self.assertEqual(checks, [{"host": "carla-server", "port": 2000}])
-
-    def test_carla_dependency_port_reads_runtime_carla_port(self) -> None:
-        self.converter.raw_services["carla-server"] = {
-            "environment": {"CARLA_PORT": "${CARLA_PORT:-2000}"}
-        }
-        checks = self.converter._depends_on({"depends_on": ["carla-server"]})
-
-        self.assertEqual(
-            checks, [{"host": "carla-server", "port": "${CARLA_PORT:-2000}"}]
-        )
 
     def test_environment_keeps_compose_source_order(self) -> None:
         self.converter.raw_services["bridge"] = {

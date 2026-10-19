@@ -55,6 +55,7 @@ ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
 
 CHART_MAP_KEYS = {"excluded_profiles", "volume_policies", "services"}
+SERVICE_MAPPING_KEYS = {"chart", "version", "values"}
 # Environment variables read when Helmfile runs.
 # Prefix for release and resource names, so several stacks share a namespace.
 NAME_PREFIX_ENV = "DEPLOYMENT_PREFIX"
@@ -164,6 +165,11 @@ class ComposeToHelmfileConverter:
                 raise ConversionError(
                     f"{name}: chart and version must be provided together"
                 )
+            unknown_keys = sorted(set(mapping) - SERVICE_MAPPING_KEYS)
+            if unknown_keys:
+                raise ConversionError(
+                    f"{name}: unknown service keys: " + ", ".join(map(str, unknown_keys))
+                )
         excluded_profiles = self.chart_map.get("excluded_profiles", [])
         if (
             not isinstance(excluded_profiles, list)
@@ -171,27 +177,6 @@ class ComposeToHelmfileConverter:
         ):
             raise ConversionError("excluded_profiles must be a list of profile names")
         self.excluded_profiles = frozenset(excluded_profiles)
-        for service_name, mapping in self.service_mappings.items():
-            value_rules = mapping.get("value_replacements", {})
-            if not isinstance(value_rules, dict):
-                raise ConversionError(f"{service_name}: value_replacements must be a mapping")
-            config_rules = mapping.get("config_replacements", {})
-            if not isinstance(config_rules, dict):
-                raise ConversionError(
-                    f"{service_name}: config_replacements must be a mapping"
-                )
-            for rules in [
-                *value_rules.values(),
-                *config_rules.values(),
-                mapping.get("param_replacements", []),
-            ]:
-                if not isinstance(rules, list) or any(
-                    not isinstance(rule, dict)
-                    or not isinstance(rule.get("find"), str)
-                    or not isinstance(rule.get("replace"), str)
-                    for rule in rules
-                ):
-                    raise ConversionError(f"{service_name}: replacements must contain find/replace strings")
         volume_policies = self.chart_map.get("volume_policies", {})
         if not isinstance(volume_policies, dict):
             raise ConversionError("volume_policies must be a mapping")
@@ -230,12 +215,6 @@ class ComposeToHelmfileConverter:
             else:
                 result[key] = copy.deepcopy(value)
         return result
-
-    @staticmethod
-    def _apply_replacements(content: str, rules: list[dict[str, str]]) -> str:
-        for rule in rules:
-            content = content.replace(rule["find"], rule["replace"])
-        return content
 
     @staticmethod
     def _contains_host_expression(value: Any) -> bool:
@@ -931,17 +910,6 @@ class ComposeToHelmfileConverter:
         checks: list[dict[str, Any]] = []
         for name in sorted(set(names)):
             dependency = self.raw_services.get(name, {})
-            port_env = self.service_mappings.get(name, {}).get("dependency_port_env")
-            if port_env:
-                configured_port = self._environment_mapping(
-                    dependency.get("environment")
-                ).get(port_env)
-                if isinstance(configured_port, str) and self._contains_host_expression(configured_port):
-                    checks.append({
-                        "host": self._sanitize_name(name),
-                        "port": configured_port,
-                    })
-                    continue
             image = str(dependency.get("image", ""))
             defaults = self._chart_defaults(self._chart_ref(name, image))
             _, compose_expose = self._ports(dependency)
@@ -1516,14 +1484,6 @@ class ComposeToHelmfileConverter:
                     for item in runtime_items
                 ]
 
-        service_mapping = self.service_mappings.get(service.name, {})
-        for key, rules in service_mapping.get("value_replacements", {}).items():
-            if isinstance(values.get(key), list):
-                values[key] = [
-                    self._apply_replacements(item, rules) if isinstance(item, str) else item
-                    for item in values[key]
-                ]
-
         for key in ("command", "args"):
             items = values.get(key)
             if isinstance(items, list):
@@ -1646,20 +1606,12 @@ class ComposeToHelmfileConverter:
                 Path(service.values_dir) / "values.yaml.gotmpl"
             ] = self._render_values(service)
             if service.param_source and service.param_filename:
-                param_data = service.param_source.read_text(encoding="utf-8")
-                rules = self.service_mappings.get(service.name, {}).get(
-                    "param_replacements", []
-                )
                 artifacts[Path(service.values_dir) / service.param_filename] = (
-                    self._apply_replacements(param_data, rules)
+                    service.param_source.read_text(encoding="utf-8")
                 )
             for filename, source in service.config_sources.items():
-                config_data = source.read_text(encoding="utf-8")
-                rules = self.service_mappings.get(service.name, {}).get(
-                    "config_replacements", {}
-                ).get(filename, [])
-                artifacts[Path(service.values_dir) / filename] = (
-                    self._apply_replacements(config_data, rules)
+                artifacts[Path(service.values_dir) / filename] = source.read_text(
+                    encoding="utf-8"
                 )
 
         if dry_run:
