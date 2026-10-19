@@ -33,17 +33,16 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 
 | Parameter | Description |
 | --- | --- |
-| `excluded_profiles` | excludes specific compose profiles, even without `--active-profiles-only` |
-| `services.<compose-service-name>.chart/version` | overrides the default chart name and version extracted from the compose service's image |
-| `services.<compose-service-name>.values` | adds or overrides Helm values |
-| `services.<compose-service-name>.value_replacements` | finds and replaces values in the generated Helm values |
-| `services.<compose-service-name>.config_replacements` | finds and replaces values in the TODO |
-| `services.<compose-service-name>.param_replacements` | finds and replaces values in the TODO |
-| `services.<compose-service-name>.dependency_port_env` | TODO |
-| `volume_policies.<compose-service-name>.<mount-target>` | sets the volume policy for a specific mount target |
-| | `copy` (default): copies the source file/directory to the Helmfile bundle; mounts as `configMap` (files < 256 KiB) or `hostPath` |
-| | `hostPath`: mounts the source file/directory as `hostPath` |
-| | `omit`: omits the volume mount |
+| `excluded_profiles` | excludes services in these Compose profiles, even if active |
+| `services.<compose-service-name>.chart/version` | overrides the chart and version derived from the service's image |
+| `services.<compose-service-name>.values` | deep-merges into the generated Helm values |
+| `services.<compose-service-name>.value_replacements` | finds and replaces text in generated list values (e.g. `command`, `args`) |
+| `services.<compose-service-name>.config_replacements` | finds and replaces text in mounted config files exported as `configMap` |
+| `services.<compose-service-name>.param_replacements` | finds and replaces text in the mounted ROS parameter file |
+| `services.<compose-service-name>.dependency_port_env` | env variable holding the service's port; dependent services wait on it instead of the lowest exposed port |
+| `volume_policies.<compose-service-name>.<mount-target>` | sets the volume policy for a bind mount |
+| | `copy` (default): copies the source to the Helmfile bundle; mounts as `configMap` (text files < 256 KiB) or `hostPath` |
+| | `bind`: mounts the source from `${PROJECT_PATH}` on the node as `hostPath`; needed for writable or shared mounts |
 
 ```yaml
 excluded_profiles: []
@@ -55,29 +54,30 @@ services: {}
   #   values:
   #     <key>: <value>
   #   value_replacements:
-  #     <key>:
-  #       - find: <old-value>
-  #         replace: <new-value>
+  #     <value-name>:  # command|args
+  #       - find: <old-text>
+  #         replace: <new-text>
   #   config_replacements:
-  #     <config-file>:
-  #       - find: <old-value>
-  #         replace: <new-value>
+  #     <config-file-name>:
+  #       - find: <old-text>
+  #         replace: <new-text>
   #   param_replacements:
-  #     <ros-param-file>:
-  #       - find: <old-value>
-  #         replace: <new-value>
+  #     - find: <old-text>
+  #       replace: <new-text>
   #   dependency_port_env: <env-var-name>
   # --- for example ---
   # zenoh-router:
   #   chart: oci://ghcr.io/openads-project/openads-helm/zenoh-router
   #   version: 0.2.10
+  # carla-server:
+  #   dependency_port_env: CARLA_PORT
 
 volume_policies: {}
   # <compose-service-name>:
-  #   <mount-target>: hostPath|copy|omit
+  #   <mount-target>: copy|bind
   # --- for example ---
   # monitoring.rviz-carla:
-  #   /docker-ros/ws/monitoring-volume: hostPath
+  #   /docker-ros/ws/monitoring-volume: bind
 ```
 
 ## CI Integration

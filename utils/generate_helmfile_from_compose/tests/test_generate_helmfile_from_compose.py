@@ -623,17 +623,16 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertFalse((destination / ".gitignore").exists())
         self.assertFalse((destination / "stale.json").exists())
 
-    def test_host_path_and_omit_override_directory_copy(self) -> None:
+    def test_bind_overrides_directory_copy(self) -> None:
         source = self.converter.compose_dir / "shared"
         source.mkdir()
         self.converter.chart_map["volume_policies"] = {
-            "shared-service": {"/keep": "hostPath", "/skip": "omit"}
+            "shared-service": {"/keep": "bind"}
         }
         volumes, _, _, _, _, directories = self.converter._volumes(
             "shared-service",
             {"volumes": [
                 {"type": "bind", "source": str(source), "target": "/keep"},
-                {"type": "bind", "source": str(source), "target": "/skip"},
             ]},
             {},
             "assets/shared-service",

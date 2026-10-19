@@ -198,12 +198,12 @@ class ComposeToHelmfileConverter:
         for service_name, mounts in volume_policies.items():
             if not isinstance(mounts, dict) or any(
                 not isinstance(target, str) or not target.startswith("/")
-                or mode not in {"copy", "hostPath", "omit"}
+                or mode not in {"copy", "bind"}
                 for target, mode in mounts.items()
             ):
                 raise ConversionError(
                     f"{service_name}: volume_policies must map absolute mount paths "
-                    "to copy, hostPath, or omit"
+                    "to copy or bind"
                 )
 
         template_dir = Path(__file__).resolve().parent.parent / "templates"
@@ -1074,8 +1074,6 @@ class ComposeToHelmfileConverter:
                     f"{service_name}: refusing to export the Compose environment file"
                 )
             policy = self._volume_policy(service_name, target)
-            if policy == "omit":
-                continue
             if (
                 target in (runtime_targets or set())
                 or target in IGNORED_VOLUME_TARGETS
@@ -1087,7 +1085,7 @@ class ComposeToHelmfileConverter:
                 raise ConversionError(
                     f"{service_name}: mounted source does not exist: {source}"
                 )
-            if policy == "hostPath":
+            if policy == "bind":
                 volumes.append({"mountPath": target, "hostPath": self._host_path_value(source)})
                 continue
             if (
@@ -1195,8 +1193,6 @@ class ComposeToHelmfileConverter:
                 continue
             match = pattern.fullmatch(raw_volume)
             if match is not None:
-                if self._volume_policy(service_name, match.group("target")) == "omit":
-                    continue
                 variable = match.group("variable")
                 root = self._host_root_expression(
                     source_file.parent / match.group("prefix")
@@ -1214,8 +1210,6 @@ class ComposeToHelmfileConverter:
             if len(parts) < 2 or not self._contains_host_expression(parts[0]):
                 continue
             target = parts[1]
-            if self._volume_policy(service_name, target) == "omit":
-                continue
             if not target.startswith("/") or self._contains_host_expression(target):
                 continue
             resolved = next(
