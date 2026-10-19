@@ -82,4 +82,4 @@ volume_policies: {}
 
 ## CI Integration
 
-For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) is provided that runs the generator and publishes the generated Helmfile setup as an workflow artifact and OCI bundle. See [openadsim](https://github.com/openads-project/openadsim/blob/k8s/.github/workflows/helmfile-oci.yml) for an integration example.
+For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) is provided that runs the generator and publishes the generated Helmfile setup as an workflow artifact and OCI bundle. See [openadsim](https://github.com/openads-project/openadsim/blob/main/.github/workflows/helmfile-oci.yml) for an integration example.
