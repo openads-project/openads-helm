@@ -18,7 +18,7 @@ The generator produces `helmfile.yaml`, `environments/services.yaml.gotmpl`, and
 
 ## GitHub Action
 
-The local composite action packages the runtime dependencies and is consumed by `.github/workflows/helmfile-oci.yml` at the same repository revision:
+The local composite action packages the runtime dependencies and is consumed by `.github/workflows/reusable-helmfile-oci.yml` at the same repository revision:
 
 ```yaml
 - uses: $/utils/generate_helmfile_from_compose

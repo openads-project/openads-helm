@@ -1,4 +1,4 @@
-name: Helmfile OCI
+name: helmfile-oci
 
 on:
   workflow_call:

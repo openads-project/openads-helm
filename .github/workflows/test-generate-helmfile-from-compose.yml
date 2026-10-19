@@ -6,14 +6,14 @@ on:
       - main
     paths:
       - .github/workflows/test-generate-helmfile-from-compose.yml
-      - .github/workflows/helmfile-oci.yml
+      - .github/workflows/reusable-helmfile-oci.yml
       - utils/generate_helmfile_from_compose/**
   pull_request:
     branches:
       - main
     paths:
       - .github/workflows/test-generate-helmfile-from-compose.yml
-      - .github/workflows/helmfile-oci.yml
+      - .github/workflows/reusable-helmfile-oci.yml
       - utils/generate_helmfile_from_compose/**
   workflow_dispatch:
 
@@ -54,4 +54,4 @@ jobs:
           -color
           -ignore '\$/'
           .github/workflows/test-generate-helmfile-from-compose.yml
-          .github/workflows/helmfile-oci.yml
+          .github/workflows/reusable-helmfile-oci.yml
