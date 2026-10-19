@@ -5,6 +5,8 @@ environments:
 ---
 releases:
 {% for service in services %}
+
+# {{ service.release_name }}
 - name: '{{ "{{" }} printf "%s-{{ service.release_name }}" (env {{ prefix_env | go_string }}) | trimPrefix "-" {{ "}}" }}'
   chart: {{ service.chart.url }}
   version: {{ service.chart.version | yaml_scalar }}
