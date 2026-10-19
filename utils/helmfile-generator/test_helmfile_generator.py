@@ -233,6 +233,46 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertIn('HOST: {{ (default "carla-server" (env "CARLA_HOST")) | quote }}', values)
         self.assertIn('PORT: {{ (default "2000" (env "CARLA_PORT")) | quote }}', values)
 
+    def test_parameter_file_uses_chart_mount_default_and_preserves_custom_paths(self) -> None:
+        source = self.converter.compose_dir / "params.yaml"
+        source.write_text('/**:\n  ros__parameters:\n    use_sim_time: true\n')
+        default_path = "/config/params.yml"
+        for target, chart_mount_path in (
+            (default_path, default_path),
+            ("/params.yml", default_path),
+            (default_path, None),
+        ):
+            with self.subTest(target=target, chart_mount_path=chart_mount_path):
+                service = {
+                    "image": "example.test/service:1",
+                    "environment": {"PARAMS": target},
+                    "volumes": [{"type": "bind", "source": str(source), "target": target}],
+                }
+                self.converter.raw_services["service"] = service
+                defaults = {
+                    "name": "service", "image": service["image"],
+                    "env": {"PARAMS": default_path},
+                    "rosParamFileMountPath": chart_mount_path,
+                }
+                with (
+                    patch.object(self.converter, "_chart_ref", return_value=ChartRef(
+                        "oci://example.test/service", "1.0.0",
+                    )),
+                    patch.object(self.converter, "_chart_defaults", return_value=defaults),
+                ):
+                    converted = self.converter._convert_service("service", service)
+                values = self.converter._render_values(converted)
+                self.assertEqual(converted.param_source, source)
+                self.assertIn('readFile "params.yml"', values)
+                if target == chart_mount_path:
+                    self.assertNotIn("rosParamFileMountPath:", values)
+                else:
+                    self.assertEqual(converted.values["rosParamFileMountPath"], target)
+                if target == default_path:
+                    self.assertNotIn("PARAMS", converted.values.get("env", {}))
+                else:
+                    self.assertEqual(converted.values["env"]["PARAMS"], target)
+
     def test_carla_dependency_uses_compose_service_name(self) -> None:
         self.converter.raw_services = {"carla-server": {"image": "example.test/carla"}}
         with (

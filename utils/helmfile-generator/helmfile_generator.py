@@ -1306,10 +1306,12 @@ class ComposeToHelmfileConverter:
             values["volumes"] = volumes
         if param_source and param_filename:
             values["rosParamFileData"] = param_filename
-            values["rosParamFileMountPath"] = next(
+            param_mount_path = next(
                 v["target"] for v in service.get("volumes", [])
                 if v.get("type") == "bind" and Path(v["source"]) == param_source
             )
+            if param_mount_path != defaults.get("rosParamFileMountPath"):
+                values["rosParamFileMountPath"] = param_mount_path
 
         ports, expose = self._ports(service)
         if ports and ports != self._normalize_port_values(
