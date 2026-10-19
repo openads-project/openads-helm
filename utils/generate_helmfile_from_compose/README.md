@@ -1,4 +1,4 @@
-# Helmfile generator
+# Generate Helmfile from Compose
 
 This tool resolves a Docker Compose project with `docker compose config` and generates a Helmfile plus per-service values. It exports every Compose profile by default and writes deterministic files below `--output-dir`. Project-specific chart references and conversion rules belong in a caller-owned `--chart-map`.
 

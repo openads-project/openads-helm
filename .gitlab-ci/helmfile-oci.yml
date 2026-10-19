@@ -40,7 +40,7 @@ spec:
       description: Git repository providing utils/generate_helmfile_from_compose.
       default: https://github.com/openads-project/openads-helm.git
     openads-helm-ref:
-      description: Branch, tag, or commit of openads-helm-repository; use the same revision as this component.
+      description: Branch, tag, or commit of openads-helm-repository; use the same revision as this template.
       default: main
 ---
 
@@ -81,7 +81,7 @@ spec:
     | tar -xz -C /usr/local/bin oras
     docker compose version
   - |-
-    # Check out the Helmfile generator
+    # check out the Compose-to-Helmfile generator
     set -euo pipefail
     git init --quiet /opt/openads-helm
     git -C /opt/openads-helm fetch --quiet --depth 1 "$OPENADS_HELM_REPOSITORY" "$OPENADS_HELM_REF"

@@ -1,4 +1,4 @@
-name: Helmfile generator
+name: Generate Helmfile from Compose
 description: Generate Helmfile state from a Docker Compose project.
 
 inputs:
