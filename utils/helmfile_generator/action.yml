@@ -68,7 +68,7 @@ runs:
         if [[ -n "$ENV_FILE_INPUT" ]]; then
           arguments+=(--env-file "$ENV_FILE_INPUT")
         fi
-        python "$GITHUB_ACTION_PATH/ci_environment.py" "${arguments[@]}"
+        python "$GITHUB_ACTION_PATH/scripts/ci_environment.py" "${arguments[@]}"
 
     - name: Generate Helmfile
       id: generate
@@ -112,7 +112,7 @@ runs:
           fi
         done < <(printf '%s' "$PROFILES_INPUT" | tr ',' '\n')
 
-        python "$GITHUB_ACTION_PATH/helmfile_generator.py" "${arguments[@]}"
+        python "$GITHUB_ACTION_PATH/scripts/helmfile_generator.py" "${arguments[@]}"
 
         dotenv_file="${ENV_FILE_INPUT:-$(dirname "$COMPOSE_FILE_INPUT")/.env}"
         dotenv_name="$(basename "$dotenv_file")"

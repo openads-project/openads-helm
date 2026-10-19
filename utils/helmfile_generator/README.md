@@ -7,7 +7,7 @@ This tool resolves a Docker Compose project with `docker compose config` and gen
 Install the Python requirements and make Docker Compose and Helm available, then run:
 
 ```sh
-python3 utils/helmfile-generator/helmfile_generator.py docker-compose.yml \
+python3 utils/helmfile_generator/scripts/helmfile_generator.py docker-compose.yml \
   --chart-map deployments/chart-map.yaml \
   --output-dir deployments/generated
 ```
@@ -21,7 +21,7 @@ The generator produces `helmfile.yaml`, `environments/services.yaml.gotmpl`, and
 The local composite action packages the runtime dependencies and is consumed by `.github/workflows/helmfile-oci.yml` at the same repository revision:
 
 ```yaml
-- uses: $/utils/helmfile-generator
+- uses: $/utils/helmfile_generator
   with:
     compose-file: docker-compose.yml
     env-file: .env
@@ -77,3 +77,11 @@ Set `volume_policies` per service and mount target. An explicit `hostPath` polic
 Detected runtime bind sources, such as supported variable-selected directories, can remain direct host paths without an explicit policy. Compose environment substitutions remain runtime Helmfile expressions where needed. Every `hostPath`, including one pointing to a bundled copy, requires its source to exist on the Kubernetes node; Helm does not transfer those files. Review generated values before deployment, especially host paths and exposed ports.
 
 An OpenADSim caller configuration is maintained in the [OpenADSim repository](https://github.com/openads-project/openadsim).
+
+## Development
+
+Executable Python scripts live in `scripts/`, output templates in `templates/`, and tests in `tests/`. From this directory, run the tests with:
+
+```sh
+PYTHONPATH=scripts python -m unittest discover -s tests -v
+```

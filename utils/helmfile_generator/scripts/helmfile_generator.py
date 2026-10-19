@@ -206,7 +206,7 @@ class ComposeToHelmfileConverter:
                     "to copy, hostPath, or omit"
                 )
 
-        template_dir = Path(__file__).parent / "templates"
+        template_dir = Path(__file__).resolve().parent.parent / "templates"
         self.jinja_env = jinja2.Environment(
             loader=jinja2.FileSystemLoader(str(template_dir)),
             trim_blocks=True,
