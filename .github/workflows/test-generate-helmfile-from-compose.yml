@@ -1,4 +1,4 @@
-name: Test Helmfile generation from Compose
+name: test-generate-helmfile-from-compose
 
 on:
   push:
@@ -22,7 +22,6 @@ permissions:
 
 jobs:
   test:
-    name: Test Compose-to-Helmfile generator
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

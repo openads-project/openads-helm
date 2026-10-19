@@ -1,87 +1,85 @@
-# Generate Helmfile from Compose
+# Generate Helmfile from Docker Compose
 
-This tool resolves a Docker Compose project with `docker compose config` and generates a Helmfile plus per-service values. It exports every Compose profile by default and writes deterministic files below `--output-dir`. Project-specific chart references and conversion rules belong in a caller-owned `--chart-map`.
+[`generate_helmfile_from_compose.py`](./scripts/generate_helmfile_from_compose.py) converts a Docker Compose project into an equivalent [Helmfile](https://helmfile.readthedocs.io/en/latest/) setup including per-service values. For CI integration, a reusable GitHub workflow is provided.
 
-## Local usage
+## Usage
 
-Install the Python requirements and make Docker Compose and Helm available, then run:
+```
+> ./generate_helmfile_from_compose.py -h
+usage: generate_helmfile_from_compose.py [-h] [--chart-map CHART_MAP] [--env-file ENV_FILE] [--profile PROFILES] [--active-profiles-only] [--output-dir OUTPUT_DIR] [--dry-run] [-v] compose_file
 
-```sh
-python3 utils/generate_helmfile_from_compose/scripts/generate_helmfile_from_compose.py docker-compose.yml \
-  --chart-map deployments/chart-map.yaml \
-  --output-dir deployments/generated
+Convert Compose services to Helmfile.
+
+positional arguments:
+  compose_file          top-level Docker Compose file
+
+options:
+  -h, --help            show this help message and exit
+  --chart-map CHART_MAP
+                        explicit service-to-OCI-chart mappings
+  --env-file ENV_FILE   Compose environment file (default: .env beside compose_file)
+  --profile PROFILES    default Compose profile (repeatable; overridden by COMPOSE_PROFILES)
+  --active-profiles-only
+                        export only the active Compose profiles instead of every profile
+  --output-dir OUTPUT_DIR
+                        output directory (default: ./helm-output)
+  --dry-run             print output without writing files
+  -v, --verbose         print conversion details
 ```
 
-`--profile NAME` is repeatable and sets the default enabled profiles in the output. `--active-profiles-only` exports only services in the active Compose profiles. `--dry-run` prints generated content without writing. `--env-file FILE` selects the environment used for Compose interpolation and Helmfile validation; the default is `.env` beside the Compose file.
+### Chart Map
 
-The generator produces `helmfile.yaml`, `environments/services.yaml.gotmpl`, and values and copied assets for every exported service. Generated directories should be treated as replaceable artifacts; keep manually maintained releases and overrides in a separate parent Helmfile.
+A special chart map file can be passed to the generator via `--chart-map CHART_MAP`, providing a way to override the default generation rules for specific services.
 
-## GitHub Action
-
-The local composite action packages the runtime dependencies and is consumed by `.github/workflows/reusable-helmfile-oci.yml` at the same repository revision:
+| Parameter | Description |
+| --- | --- |
+| `excluded_profiles` | excludes specific compose profiles, even without `--active-profiles-only` |
+| `services.<compose-service-name>.chart/version` | overrides the default chart name and version extracted from the compose service's image |
+| `services.<compose-service-name>.values` | adds or overrides Helm values |
+| `services.<compose-service-name>.value_replacements` | finds and replaces values in the generated Helm values |
+| `services.<compose-service-name>.config_replacements` | finds and replaces values in the TODO |
+| `services.<compose-service-name>.param_replacements` | finds and replaces values in the TODO |
+| `services.<compose-service-name>.dependency_port_env` | TODO |
+| `volume_policies.<compose-service-name>.<mount-target>` | sets the volume policy for a specific mount target |
+| | `copy` (default): copies the source file/directory to the Helmfile bundle; mounts as `configMap` (files < 256 KiB) or `hostPath` |
+| | `hostPath`: mounts the source file/directory as `hostPath` |
+| | `omit`: omits the volume mount |
 
 ```yaml
-- uses: $/utils/generate_helmfile_from_compose
-  with:
-    compose-file: docker-compose.yml
-    env-file: .env
-    chart-map: deployments/chart-map.yaml
-    profiles: traffic,planning
-    output-dir: deployments/generated
+excluded_profiles: []
+
+services: {}
+  # <compose-service-name>:
+  #   chart: <oci-chart-url>
+  #   version: <chart-version>
+  #   values:
+  #     <key>: <value>
+  #   value_replacements:
+  #     <key>:
+  #       - find: <old-value>
+  #         replace: <new-value>
+  #   config_replacements:
+  #     <config-file>:
+  #       - find: <old-value>
+  #         replace: <new-value>
+  #   param_replacements:
+  #     <ros-param-file>:
+  #       - find: <old-value>
+  #         replace: <new-value>
+  #   dependency_port_env: <env-var-name>
+  # --- for example ---
+  # zenoh-router:
+  #   chart: oci://ghcr.io/openads-project/openads-helm/zenoh-router
+  #   version: 0.2.10
+
+volume_policies: {}
+  # <compose-service-name>:
+  #   <mount-target>: hostPath|copy|omit
+  # --- for example ---
+  # monitoring.rviz-carla:
+  #   /docker-ros/ws/monitoring-volume: hostPath
 ```
 
-CI reads the selected `env-file` for generation and for `helmfile build`/`helmfile template`. The reusable workflow also supports a caller-owned parent Helmfile through `helmfile-entrypoint` and archives `bundle-dir` as-is; both inputs default to the generated output for simple projects. Set `include-env-file-in-bundle: true` to copy the selected dotenv file to `.env` at the bundle root immediately before validation and archiving. This is opt-in because dotenv files can contain secrets.
+## CI Integration
 
-The action requires `output-dir` to be a directory below the caller workspace. It replaces that directory in the ephemeral checkout before generation. Use the same path when extracting the archive later; generated host paths for copied assets intentionally refer to this caller-relative location.
-
-## Chart map
-
-The generator targets charts built on the `openadservice` base chart: values are written below `openadservice:`, mounted YAML files containing `ros__parameters` become `rosParamFileData`, and the chart renders `ZENOH_CONFIG_OVERRIDE` itself.
-
-Default comparisons include the `openadservice` dependency bundled in the selected chart, with the service chart's values applied over it. Fixed environment values equal to those effective defaults are omitted; Compose environment expressions remain configurable when Helmfile runs.
-
-Without a map entry, a GHCR image `ghcr.io/<owner>/<repository>:v<X.Y.Z>…` is mapped to the release chart `oci://ghcr.io/<owner>/<repository>/helm/<chart>` at version `<X.Y.Z>`. An image tagged `latest`, `latest-slim` or similar is a default-branch build; it is mapped to the newest `<X.Y.Z>-main` version of that chart, read from the registry's tag list. Services that use another chart or version need an explicit entry. Map keys are full Compose service names, including group prefixes such as `perception.service-name`. Unknown top-level keys are rejected.
-
-```yaml
-excluded_profiles: [gui]
-volume_policies:
-  recorder:
-    /records: hostPath
-services:
-  api:
-    chart: oci://registry.example/team/api
-    version: 1.0.0
-    dependency_port_env: API_PORT
-    value_replacements:
-      args:
-        - find: old-host
-          replace: new-host
-    config_replacements:
-      application.yaml:
-        - find: old-endpoint
-          replace: new-endpoint
-```
-
-Generated output reads these environment variables when Helmfile runs: `DEPLOYMENT_PREFIX` (optional) prefixes Helm release names and writes `namePrefix` values. `NODE` (optional) writes a `kubernetes.io/hostname` node selector. `PROJECT_PATH` is the absolute path of the Compose directory on the node and resolves host paths below it; Helmfile fails if it is unset and a `hostPath` volume uses it. CI sets `PROJECT_PATH` to the workspace unless the env file defines it. `dependency_port_env` makes a dependent service wait on a runtime port expression from the named service's Compose environment.
-
-Fixed bind sources use the `copy` policy by default. This policy controls whether the source is included in the generated bundle; it does not specify a Kubernetes volume type:
-
-| Policy | Bundle contents | Kubernetes mount |
-| --- | --- | --- |
-| `copy` (default) | A copy of the source | ROS parameter YAML and UTF-8 text files smaller than 256 KiB without NUL bytes become ConfigMaps; other files and directories use a `hostPath` pointing to the bundled copy. |
-| `hostPath` | No copy | A `hostPath` pointing to the original source on the node, regardless of file size. |
-| `omit` | No copy | No mount. |
-
-Set `volume_policies` per service and mount target. An explicit `hostPath` policy takes precedence over ROS parameter detection and the text-file size check, so it can also keep a small CSV on the node. The `copy` policy still uses the automatic ConfigMap/hostPath selection above. ConfigMaps are read-only; use `hostPath` for writable or shared sources. Copied directories are separate for each service and do not preserve sharing of the original source.
-
-Detected runtime bind sources, such as supported variable-selected directories, can remain direct host paths without an explicit policy. Compose environment substitutions remain runtime Helmfile expressions where needed. Every `hostPath`, including one pointing to a bundled copy, requires its source to exist on the Kubernetes node; Helm does not transfer those files. Review generated values before deployment, especially host paths and exposed ports.
-
-An OpenADSim caller configuration is maintained in the [OpenADSim repository](https://github.com/openads-project/openadsim).
-
-## Development
-
-Executable Python scripts live in `scripts/`, output templates in `templates/`, and tests in `tests/`. From this directory, run the tests with:
-
-```sh
-PYTHONPATH=scripts python -m unittest discover -s tests -v
-```
+For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) is provided that runs the generator and publishes the generated Helmfile setup as an workflow artifact and OCI bundle. See [openadsim](https://github.com/openads-project/openadsim/blob/k8s/.github/workflows/helmfile-oci.yml) for an integration example.
