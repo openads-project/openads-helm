@@ -123,6 +123,15 @@ rosParamFileMountPath: null
 # Templates use the merged per-instance context and can reference values such as {{ .Values.name }}.
 rosParamFileData: null
 
+# rosParamOverridesData is Helm-templated ROS parameter YAML appended to rosParamFileData in the same file.
+# ROS 2 applies the last matching block, so it overrides individual parameters without replacing the whole file.
+# It is only rendered if rosParamFileMountPath and rosParamFileData are set.
+# rosParamOverridesData: |
+#   /**:
+#     ros__parameters:
+#       my_param: 1.0
+rosParamOverridesData: null
+
 # volumes is a list of maps for hostPath, inline or existing ConfigMap, or image volumes
 volumes: []
 # - mountPath:      # container mount path (for `hostPath` volumes)

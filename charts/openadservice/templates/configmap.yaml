@@ -40,6 +40,9 @@ metadata:
 data:
   {{ $values.rosParamFileMountPath | base | quote }}: |-
 {{ tpl $values.rosParamFileData $ctx | indent 4 }}
+{{- with $values.rosParamOverridesData }}
+{{ tpl . $ctx | indent 4 }}
+{{- end }}
 ---
 {{- end }}
 {{- range $values.volumes }}
