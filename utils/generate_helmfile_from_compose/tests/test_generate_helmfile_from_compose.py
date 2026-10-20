@@ -273,6 +273,52 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
                 else:
                     self.assertEqual(converted.values["env"]["PARAMS"], target)
 
+    def test_ros_params_are_appended_to_parameter_file(self) -> None:
+        source = self.converter.compose_dir / "params.yml"
+        source.write_text('/**:\n  ros__parameters:\n    server_url: "server:8001"\n')
+        service = {
+            "image": "example.test/service:1",
+            "volumes": [{"type": "bind", "source": str(source), "target": "/params.yml"}],
+        }
+        self.converter.raw_services["service"] = service
+        self.converter.service_mappings = {"service": {"ros_params": {
+            "server_url": "${SERVER_HOST:-server}:8001",
+            "timeout_s": 5.0,
+            "retries": 3,
+        }}}
+        defaults = {"name": "service", "image": service["image"], "rosParamFileMountPath": "/params.yml"}
+        with (
+            patch.object(self.converter, "_chart_ref", return_value=ChartRef(
+                "oci://example.test/service", "1.0.0",
+            )),
+            patch.object(self.converter, "_chart_defaults", return_value=defaults),
+        ):
+            converted = self.converter._convert_service("service", service)
+        values = self.converter._render_values(converted)
+        self.assertIn(
+            '  rosParamFileData: |\n'
+            '{{ readFile "params.yml" | indent 4 }}\n'
+            "    /**:\n"
+            "      ros__parameters:\n"
+            '        server_url: {{ (printf "%s%s" (default "server" (env "SERVER_HOST")) ":8001") | quote }}\n'
+            "        timeout_s: 5.0\n"
+            "        retries: 3\n",
+            values,
+        )
+
+    def test_ros_params_require_parameter_file(self) -> None:
+        service = {"image": "example.test/service:1"}
+        self.converter.raw_services["service"] = service
+        self.converter.service_mappings = {"service": {"ros_params": {"a": 1}}}
+        with (
+            patch.object(self.converter, "_chart_ref", return_value=ChartRef(
+                "oci://example.test/service", "1.0.0",
+            )),
+            patch.object(self.converter, "_chart_defaults", return_value={}),
+            self.assertRaisesRegex(ConversionError, "service: ros_params require"),
+        ):
+            self.converter._convert_service("service", service)
+
     def test_carla_dependency_uses_compose_service_name(self) -> None:
         self.converter.raw_services = {"carla-server": {"image": "example.test/carla"}}
         with (

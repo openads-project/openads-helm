@@ -55,7 +55,7 @@ ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
 
 CHART_MAP_KEYS = {"excluded_profiles", "volume_policies", "services"}
-SERVICE_MAPPING_KEYS = {"chart", "version", "values"}
+SERVICE_MAPPING_KEYS = {"chart", "version", "values", "ros_params"}
 # Environment variables read when Helmfile runs.
 # Prefix for release and resource names, so several stacks share a namespace.
 NAME_PREFIX_ENV = "DEPLOYMENT_PREFIX"
@@ -108,6 +108,7 @@ class ConvertedService:
     values: dict[str, Any] = field(default_factory=dict)
     param_source: Path | None = None
     param_filename: str | None = None
+    ros_params: dict[str, Any] = field(default_factory=dict)
     config_sources: dict[str, Path] = field(default_factory=dict)
     file_sources: dict[str, Path] = field(default_factory=dict)
     directory_sources: dict[str, Path] = field(default_factory=dict)
@@ -170,6 +171,8 @@ class ComposeToHelmfileConverter:
                 raise ConversionError(
                     f"{name}: unknown service keys: " + ", ".join(map(str, unknown_keys))
                 )
+            if not isinstance(mapping.get("ros_params", {}), dict):
+                raise ConversionError(f"{name}: ros_params must be a mapping")
         excluded_profiles = self.chart_map.get("excluded_profiles", [])
         if (
             not isinstance(excluded_profiles, list)
@@ -1290,6 +1293,11 @@ class ComposeToHelmfileConverter:
             values["dependsOn"] = depends_on
 
         mapping = self.service_mappings.get(service_name, {})
+        ros_params = mapping.get("ros_params", {})
+        if ros_params and not (param_source and param_filename):
+            raise ConversionError(
+                f"{service_name}: ros_params require a mounted ROS parameter file"
+            )
         value_overrides = mapping.get("values", {})
         if value_overrides:
             if not isinstance(value_overrides, dict):
@@ -1339,6 +1347,7 @@ class ComposeToHelmfileConverter:
             values=values,
             param_source=param_source,
             param_filename=param_filename,
+            ros_params=ros_params,
             config_sources=config_sources,
             file_sources=file_sources,
             directory_sources=directory_sources,
@@ -1439,9 +1448,29 @@ class ComposeToHelmfileConverter:
             values["rosParamFileData"] = template_value(
                 f"readFile {self._go_string(filename)} | indent 4", quote=False
             )
-            replacements[values["rosParamFileData"]] = (
-                f'|\n{{{{ readFile {self._go_string(filename)} | indent 4 }}}}'
-            )
+            param_data = f'|\n{{{{ readFile {self._go_string(filename)} | indent 4 }}}}'
+            if service.ros_params:
+                # ROS 2 applies the last matching block of a parameter file,
+                # so the appended overrides win over the copied file.
+                def template_param(value: Any) -> Any:
+                    if isinstance(value, dict):
+                        return {k: template_param(v) for k, v in value.items()}
+                    if isinstance(value, list):
+                        return [template_param(item) for item in value]
+                    if self._contains_host_expression(value):
+                        return template_value(self._compose_expression(value))
+                    return value
+
+                overrides = yaml.safe_dump(
+                    {"/**": {"ros__parameters": template_param(service.ros_params)}},
+                    allow_unicode=True,
+                    sort_keys=False,
+                    width=1000,
+                )
+                param_data += "\n" + "\n".join(
+                    "    " + line for line in overrides.splitlines()
+                )
+            replacements[values["rosParamFileData"]] = param_data
 
         for volume in values.get("volumes", []):
             filename = volume.pop("dataFile", None)

@@ -36,6 +36,7 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 | `excluded_profiles` | excludes services in these Compose profiles, even if active |
 | `services.<compose-service-name>.chart/version` | overrides the chart and version derived from the service's image |
 | `services.<compose-service-name>.values` | deep-merges into the generated Helm values |
+| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended as a final `/**` block, which ROS 2 applies last; values may use Compose interpolation such as `${VAR:-default}` |
 | `volume_policies.<compose-service-name>.<mount-target>` | sets the volume policy for a bind mount |
 | | `copy` (default): copies the source to the Helmfile bundle; mounts as `configMap` (text files < 256 KiB) or `hostPath` |
 | | `bind`: mounts the source from `${PROJECT_PATH}` on the node as `hostPath`; needed for writable or shared mounts |
@@ -49,10 +50,15 @@ services: {}
   #   version: <chart-version>
   #   values:
   #     <key>: <value>
+  #   ros_params:
+  #     <ros-parameter-name>: <value>
   # --- for example ---
   # zenoh-router:
   #   chart: oci://ghcr.io/openads-project/openads-helm/zenoh-router
   #   version: 0.2.10
+  # perception.point-cloud-object-detection:
+  #   ros_params:
+  #     prediction.server_url: ${TRITON_HOST:-triton-server}:8001
 
 volume_policies: {}
   # <compose-service-name>:
