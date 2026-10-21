@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import ipaddress
+import json
 import os
 import re
 import socket
@@ -112,34 +113,39 @@ def apply_netem(iface: str, delay: str, jitter: str, dist: str, loss: str, limit
 
 
 def update_filters(iface: str, target_ips: list[str], peer_port: str) -> None:
-    run(["tc", "filter", "del", "dev", iface, "protocol", "ip", "parent", "1:", "prio", "1"], check=False)
+    filters = json.loads(run([
+        "tc", "-j", "filter", "show", "dev", iface, "protocol", "ip", "parent", "1:",
+    ]).stdout)
+    for entry in filters:
+        if (entry["kind"] != "u32" or entry.get("chain", 0) != 0
+                or entry.get("options", {}).get("flowid", "1:11") != "1:11"):
+            raise RuntimeError("unexpected filter in controller-owned HTB root 1:")
+    priorities = {int(entry["pref"]) for entry in filters}
+    priority = next((value for value in range(1, 65536) if value not in priorities), None)
+    if priority is None:
+        raise RuntimeError("no free filter priority for profile update")
 
-    if target_ips and peer_port:
-        for ip in target_ips:
-            run([
-                "tc", "filter", "add", "dev", iface, "protocol", "ip", "parent", "1:", "prio", "1", "u32",
-                "match", "ip", "protocol", "6", "0xff",
-                "match", "ip", "dst", f"{ip}/32",
-                "match", "ip", "dport", peer_port, "0xffff",
-                "flowid", "1:11",
-            ])
-        return
+    # keep all old matches until the complete replacement is installed, including after a failed apply
+    for ip in target_ips or [""]:
+        cmd = [
+            "tc", "filter", "add", "dev", iface, "protocol", "ip", "parent", "1:",
+            "prio", str(priority), "u32",
+        ]
+        if peer_port:
+            cmd.extend(["match", "ip", "protocol", "6", "0xff"])
+        if ip:
+            cmd.extend(["match", "ip", "dst", f"{ip}/32"])
+        if peer_port:
+            cmd.extend(["match", "ip", "dport", peer_port, "0xffff"])
+        cmd.extend(["flowid", "1:11"])
+        run(cmd)
 
-    if target_ips:
-        for ip in target_ips:
-            run([
-                "tc", "filter", "add", "dev", iface, "protocol", "ip", "parent", "1:", "prio", "1", "u32",
-                "match", "ip", "dst", f"{ip}/32",
-                "flowid", "1:11",
-            ])
-        return
-
-    run([
-        "tc", "filter", "add", "dev", iface, "protocol", "ip", "parent", "1:", "prio", "1", "u32",
-        "match", "ip", "protocol", "6", "0xff",
-        "match", "ip", "dport", peer_port, "0xffff",
-        "flowid", "1:11",
-    ])
+    # a retry also retires partial replacements left by an interrupted or failed update
+    for old_priority in sorted(priorities):
+        run([
+            "tc", "filter", "del", "dev", iface, "protocol", "ip", "parent", "1:",
+            "prio", str(old_priority),
+        ])
 
 
 def main() -> int:
