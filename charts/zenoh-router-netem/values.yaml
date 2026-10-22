@@ -1,0 +1,48 @@
+# zenoh-router carries the base chart values
+zenoh-router:
+  openadservice:
+    enableDeployment: false
+    enableService: false
+
+netem:
+
+  # enabled is a flag to optionally disable network emulation
+  enabled: true
+
+  # image is the container image used by netem init and http sidecar
+  image: nicolaka/netshoot:latest
+
+  # iface is the pod network interface to shape
+  iface: eth0
+
+  # autoPeer detects the active zenoh router peer IP from live sockets and prefers it over DNS resolution (required for bi-directional egress shaping)
+  autoPeer: true
+
+  # peerHost is a DNS name or raw IPv4 address of the peer to match
+  peerHost: null
+
+  # peerPort matches TCP destination port of the peer to match; keep empty for host-only matching
+  peerPort: null
+
+  # delay is the latency to add to the packets
+  delay: 0ms
+
+  # jitter is the variability of the added latency
+  jitter: 0ms
+
+  # loss is the percentage of packets to drop
+  loss: 0%
+
+  # rate is the bandwidth limit to apply to the traffic
+  rate: 1000mbit
+
+  # distribution is the distribution to use for delay and loss; can be "normal" or "pareto"
+  distribution: normal
+
+  # limit is the maximum number of packets to apply netem to; keep empty for unlimited
+  limit: null
+
+  # http is the configuration for the http sidecar to expose netem stats and dynamic configuration
+  http:
+    enabled: true
+    port: 18080
