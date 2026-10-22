@@ -428,6 +428,7 @@
         "key_exprs": [
           {{- range .Values.allowedRosTopics }}
           "*/{{ (trimAll "/" .) }}/**",
+          "*/{{ (trimAll "/" .) }}/*/*/@adv/**",
           "@ros2_lv/**/%{{ (replace "/" "%" (trimAll "/" .)) }}/**",
           {{- end }}
           {{- range .Values.allowedRosServices }}
