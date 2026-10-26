@@ -1,0 +1,15 @@
+{{- $zenohRouter := index .Values "zenoh-router" }}
+{{- if and $zenohRouter.openadservice.enable .Values.netem.enabled }}
+apiVersion: v1
+kind: ConfigMap
+{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-netem" ($zenohRouter.openadservice.name | default .Release.Name)) }}
+metadata:
+  name: "{{ $name }}"
+  labels:
+    app.kubernetes.io/name: "{{ $name }}"
+    {{- range $key, $value := $zenohRouter.openadservice.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+{{ (.Files.Glob "files/netem/*").AsConfig | indent 2 }}
+{{- end }}
