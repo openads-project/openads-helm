@@ -57,3 +57,23 @@ spec:
     {{- end }}
 {{- end }}
 {{- end }}
+{{- if and $service.enable .Values.netem.enabled .Values.netem.http.enabled .Values.netem.http.nodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "{{ $service.name | default .Release.Name }}-netem"
+  labels:
+    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}-netem"
+spec:
+  selector:
+    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}"
+  type: NodePort
+  externalTrafficPolicy: Local
+  ports:
+    - name: netem-http
+      port: {{ .Values.netem.http.port }}
+      targetPort: {{ .Values.netem.http.port }}
+      nodePort: {{ .Values.netem.http.nodePort }}
+      protocol: TCP
+{{- end }}

@@ -46,3 +46,4 @@ netem:
   http:
     enabled: true
     port: 18080
+    nodePort: 30880

@@ -37,13 +37,18 @@ The external NodePort service uses `externalTrafficPolicy: Local` by default so 
 
 ## Runtime API
 
-When `netem.http.enabled` is true, port `18080` is exposed on the router's ClusterIP service:
+When `netem.http.enabled` is true, port `18080` is exposed on the router's ClusterIP service. By default, a separate NodePort Service also exposes the API on node port `30880`.
+
+| Value | Default | Description |
+| --- | --- | --- |
+| `netem.http.enabled` | `true` | run the HTTP controller and expose its API |
+| `netem.http.port` | `18080` | HTTP container and Service port |
+| `netem.http.nodePort` | `30880` | external HTTP NodePort; set to `null` or `0` for cluster-internal access only |
 
 ```bash
-kubectl port-forward deploy/zenoh-router 18080:18080
-curl --fail http://127.0.0.1:18080/health
-curl --fail http://127.0.0.1:18080/v1/netem/state
-curl --fail --request POST http://127.0.0.1:18080/v1/netem/apply \
+curl --fail http://router-node.example.org:30880/health
+curl --fail http://router-node.example.org:30880/v1/netem/state
+curl --fail --request POST http://router-node.example.org:30880/v1/netem/apply \
   --header 'Content-Type: application/json' \
   --data '{"delay":"80ms","jitter":"10ms","loss":"0.5%","rate":"50mbit","distribution":"normal","limit":1000}'
 ```
