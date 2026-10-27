@@ -24,6 +24,14 @@ metadata:
     {{- end }}
 spec:
   replicas: 1
+  {{- $hasHostPorts := false }}
+  {{- range $values.ports }}
+  {{- $hasHostPorts = or $hasHostPorts (not (empty .hostPort)) }}
+  {{- end }}
+  {{- if $hasHostPorts }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/name: "{{ $name }}"
