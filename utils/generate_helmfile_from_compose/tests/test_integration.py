@@ -17,7 +17,9 @@ class ComposeFixtureIntegrationTest(unittest.TestCase):
                 'services:\n'
                 '  planning.controller:\n'
                 '    image: ghcr.io/example/controller:v1.0.0\n'
+                '    depends_on: [drivers.zed-camera.mediamtx]\n'
                 '    environment:\n'
+                '      SERVICE_URL: rtsp://drivers.zed-camera.mediamtx:8554\n'
                 '      ZENOH_CONFIG_OVERRIDE: >-\n'
                 '        ${ZENOH_PEER:?};connect/endpoints=["tcp/localization.state:7447",'
                 '"tcp/zenoh-router:7447","tcp/drivers.fka-dbw:7447"]\n'
@@ -29,6 +31,9 @@ class ComposeFixtureIntegrationTest(unittest.TestCase):
                 '    image: ghcr.io/example/router:v1.0.0\n'
                 '    environment:\n'
                 '      ZENOH_CONFIG_OVERRIDE: routing/router/peers_failover_brokering=false\n'
+                '  drivers.zed-camera.mediamtx:\n'
+                '    image: ghcr.io/example/mediamtx:v1.0.0\n'
+                '    ports: ["18554:8554/tcp"]\n'
             )
             (root / ".env").write_text(
                 'ZENOH_PEER=\'mode="peer";listen/endpoints=["tcp/0.0.0.0:7447"];'
@@ -53,6 +58,11 @@ class ComposeFixtureIntegrationTest(unittest.TestCase):
             self.assertIn("targetPort: 7447", state)
             self.assertIn("mode: peer", state)
             self.assertIn("routing/router/peers_failover_brokering: false", router)
+            self.assertIn("host: mediamtx", controller)
+            self.assertIn("port: 8554", controller)
+            mediamtx = (root / "generated/mediamtx/values.yaml.gotmpl").read_text()
+            self.assertIn("hostPort: 18554", mediamtx)
+            self.assertIn("expose:\n  - targetPort: 8554\n    protocol: TCP", mediamtx)
             self.assertTrue(any("outside generated services" in str(call) for call in output.call_args_list))
 
     @unittest.skipUnless(shutil.which("docker"), "docker compose is required")

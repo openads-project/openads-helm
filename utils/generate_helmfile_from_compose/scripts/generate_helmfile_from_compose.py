@@ -15,6 +15,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -147,6 +148,7 @@ class ComposeToHelmfileConverter:
         self.chart_values_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self.registry_tags_cache: dict[str, list[str]] = {}
         self.raw_services: dict[str, dict[str, Any]] = {}
+        self.resolved_services: dict[str, dict[str, Any]] = {}
         self.raw_service_sources: dict[str, Path] = {}
         self.source_service_counts: dict[Path, int] = {}
         self.chart_map: dict[str, Any] = {}
@@ -866,9 +868,8 @@ class ComposeToHelmfileConverter:
                 "targetPort": int(item["target"]),
                 "protocol": str(item.get("protocol", "tcp")).upper(),
             }
-            if item.get("published") is None:
-                expose.append(entry)
-            else:
+            expose.append(entry.copy())
+            if item.get("published") is not None:
                 published = int(item["published"])
                 mode = self.port_policies.get(service_name, {}).get(published, "hostPort")
                 entry[mode] = published
@@ -891,6 +892,7 @@ class ComposeToHelmfileConverter:
                 item["protocol"],
             )
         )
+        expose = list({(item["targetPort"], item["protocol"]): item for item in expose}.values())
         expose.sort(key=lambda item: (item["targetPort"], item["protocol"]))
         return ports, expose
 
@@ -1026,6 +1028,40 @@ class ComposeToHelmfileConverter:
                 ))
         return statuses
 
+    def _translate_service_urls(self, services: list[ConvertedService]) -> None:
+        """Translate literal URL hosts that reference generated Compose services."""
+        targets = {service.name: service for service in services}
+        for service in services:
+            for key, value in service.values.get("env", {}).items():
+                if not isinstance(value, str) or key in service.runtime_environment:
+                    continue
+                try:
+                    url = urllib.parse.urlsplit(value)
+                    host = url.hostname
+                except ValueError:
+                    continue
+                if not url.scheme or not url.netloc or host not in targets:
+                    continue
+                target = targets[host]
+                effective = self._merge_values(self._chart_defaults(target.chart), target.values)
+                if effective.get("instances"):
+                    raise ConversionError(
+                        f"{service.name}: URL target {target.name} uses chart instances; "
+                        "a single Compose hostname cannot identify an instance"
+                    )
+                name = str(effective.get("name") or target.release_name)
+                start = value.index("://") + 3 + url.netloc.rfind("@") + 1
+                address = (
+                    value[:start].replace("%", "%%") + "%s"
+                    + value[start + len(host):].replace("%", "%%")
+                )
+                service.values["env"][key] = (
+                    "{{ printf " + self._go_string(address)
+                    + ' (tpl $prefixedName (list (env "DEPLOYMENT_PREFIX") '
+                    + self._go_string(name) + ")) | quote }}"
+                )
+                service.uses_name_helper = True
+
     @staticmethod
     def _normalize_port_values(
         value: Any, published_port: bool
@@ -1073,7 +1109,7 @@ class ComposeToHelmfileConverter:
 
         checks: list[dict[str, Any]] = []
         for name in sorted(set(names)):
-            dependency = self.raw_services.get(name, {})
+            dependency = self.resolved_services.get(name, self.raw_services.get(name, {}))
             image = str(dependency.get("image", ""))
             defaults = self._chart_defaults(self._chart_ref(name, image))
             _, compose_expose = self._ports(dependency, name)
@@ -1087,7 +1123,7 @@ class ComposeToHelmfileConverter:
                 if port.get("protocol", "TCP").upper() == "TCP"
             ]
             if tcp_ports:
-                checks.append({"host": self._sanitize_name(name), "port": min(tcp_ports)})
+                checks.append({"host": self._release_name(name), "port": min(tcp_ports)})
         return checks
 
     @staticmethod
@@ -1449,17 +1485,13 @@ class ComposeToHelmfileConverter:
                 values["rosParamFileMountPath"] = param_mount_path
 
         ports, expose = self._ports(service, service_name)
-        if zenoh_override:
-            listeners = self._zenoh_listener_ports(zenoh_settings)
-            if listeners:
-                expose = expose or copy.deepcopy(defaults.get("expose") or [])
-                for listener in listeners:
-                    if not any(
-                        item.get("port", item["targetPort"]) == listener["targetPort"]
-                        and item.get("protocol", "TCP").upper() == listener["protocol"]
-                        for item in expose
-                    ):
-                        expose.append(listener)
+        listeners = self._zenoh_listener_ports(zenoh_settings) if zenoh_override else []
+        if expose or listeners:
+            exposed_ports = {}
+            for item in [*(defaults.get("expose") or []), *expose, *listeners]:
+                key = (item.get("port", item["targetPort"]), item.get("protocol", "TCP").upper())
+                exposed_ports[key] = copy.deepcopy(item)
+            expose = list(exposed_ports.values())
         if ports and ports != self._normalize_port_values(
             defaults.get("ports"), published_port=True
         ):
@@ -1736,10 +1768,9 @@ class ComposeToHelmfileConverter:
         content = content.replace(root_key, root_key + runtime_values, 1)
         if service.uses_name_helper:
             helper = os.path.relpath(HELPERS_TEMPLATE, service.values_dir)
-            content = content.replace(
-                "\n  rmw:\n",
-                '\n{{ $prefixedName := readFile ' + self._go_string(helper) + ' }}\n  rmw:\n',
-                1,
+            content = (
+                '{{- $prefixedName := readFile ' + self._go_string(helper) + ' -}}\n'
+                + content
             )
         for marker, replacement in replacements.items():
             content = content.replace(marker, replacement)
@@ -1783,6 +1814,7 @@ class ComposeToHelmfileConverter:
             profiles=export_profiles,
         )
         full_services = full_config["services"]
+        self.resolved_services = full_services
         if self.verbose:
             print("Compose services: " + ", ".join(sorted(full_services)))
 
@@ -1822,6 +1854,7 @@ class ComposeToHelmfileConverter:
         if len({s.release_name for s in converted}) != len(converted):
             raise ConversionError("Compose service names produce duplicate Helm release names")
         statuses.extend(self._translate_zenoh_topology(converted))
+        self._translate_service_urls(converted)
         converted.sort(
             key=lambda service: (
                 service.values_dir,

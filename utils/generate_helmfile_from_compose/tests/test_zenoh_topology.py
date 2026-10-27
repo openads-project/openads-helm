@@ -121,7 +121,12 @@ class ZenohTopologyTest(unittest.TestCase):
             '"tcp/localization.target:7447#retry_period_init_ms=100;retry_period_max_ms=1000",'
             '"tcp/external.example:7447"]'
         )
-        source.values["env"] = {"LOG_LEVEL": "info"}
+        source.values["env"] = {
+            "LOG_LEVEL": "info",
+            "RTSP_BASE_URL": "rtsp://user:pass@localization.target:8554/front%20left?stream=low",
+            "EXTERNAL_URL": "rtsp://external.example:8554/camera",
+            "TRITON_SERVER_URL": "triton-server:8001",
+        }
         target = ConvertedService(
             "localization.target", "target", ChartRef("local", "1"), "target",
             values={"name": "Custom.Target", "expose": [{"targetPort": 7447}]},
@@ -149,11 +154,12 @@ class ZenohTopologyTest(unittest.TestCase):
                 target.values["name"] = name
                 with patch.object(self.converter, "_chart_defaults", return_value={}):
                     self.converter._translate_zenoh_topology([rendered_source, target])
+                    self.converter._translate_service_urls([rendered_source, target])
                 rendered_values = self.converter._render_values(rendered_source)
                 values_path.write_text(rendered_values)
-                self.assertTrue(rendered_values.startswith("openadservice:\n"))
+                self.assertTrue(rendered_values.startswith('{{- $prefixedName := readFile "'))
                 self.assertLess(rendered_values.index("\n  env:\n"), rendered_values.index("\n  rmw:\n"))
-                self.assertIn(' }}\n  rmw:\n', rendered_values)
+                self.assertIn(' -}}\nopenadservice:\n', rendered_values)
                 environment = {**os.environ, "DEPLOYMENT_PREFIX": prefix, "NODE": ""}
                 subprocess.run([
                     "helmfile", "--file", str(self.root / "helmfile.yaml"), "--skip-deps",
@@ -168,6 +174,10 @@ class ZenohTopologyTest(unittest.TestCase):
                     doc for doc in yaml.safe_load_all(result.stdout)
                     if doc and doc["kind"] == "Service"
                 )
+                self.assertEqual(values["env"]["RTSP_BASE_URL"],
+                    f'rtsp://user:pass@{target_service["metadata"]["name"]}:8554/front%20left?stream=low')
+                self.assertEqual(values["env"]["EXTERNAL_URL"], "rtsp://external.example:8554/camera")
+                self.assertEqual(values["env"]["TRITON_SERVER_URL"], "triton-server:8001")
                 settings = values["rmw"]["zenoh"]["configOverrides"]
                 endpoints = settings["connect/endpoints"]
                 self.assertEqual(endpoints, [
