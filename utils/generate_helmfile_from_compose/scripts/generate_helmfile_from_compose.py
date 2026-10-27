@@ -70,6 +70,10 @@ HOST_PATH_ROOT_ENV = "PROJECT_PATH"
 class ConversionError(RuntimeError):
     """Raised when conversion cannot produce a complete output."""
 
+    def __init__(self, message: str, *, reported: bool = False) -> None:
+        super().__init__(message)
+        self.reported = reported
+
 
 class ChartUnavailableError(ConversionError):
     """Raised when no OCI chart exists for a derived chart reference."""
@@ -1753,14 +1757,17 @@ class ComposeToHelmfileConverter:
     def _print_summary(
         statuses: list[tuple[str, str, str, str]],
     ) -> None:
-        for icon, service_name, target, message in statuses:
-            suffix = f": {message}" if message else ""
-            line = f"{icon} {service_name}{suffix}"
-            if icon.strip().startswith("⚠"):
-                line = f"\033[33m{line}\033[0m"
-            elif icon.strip().startswith("❌"):
-                line = f"\033[31m{line}\033[0m"
-            print(line)
+        grouped: dict[str, list[tuple[int, str]]] = {}
+        for icon, service_name, _, message in statuses:
+            severity = 2 if icon.startswith("❌") else 1 if icon.startswith("⚠") else 0
+            grouped.setdefault(service_name, []).append((severity, message))
+        for service_name, reports in grouped.items():
+            severity = max(level for level, _ in reports)
+            print(f"{('✅', '⚠️ ', '❌')[severity]} {service_name}")
+            for level, message in reports:
+                if level and message:
+                    for line in message.splitlines():
+                        print(f"   - {line}")
 
     def convert(self, dry_run: bool = False) -> None:
         self._validate_inputs()
@@ -1811,7 +1818,7 @@ class ComposeToHelmfileConverter:
                 fatal_errors.append(f"{name}: {message}")
         if fatal_errors:
             self._print_summary(statuses)
-            raise ConversionError("; ".join(fatal_errors))
+            raise ConversionError("; ".join(fatal_errors), reported=True)
         if len({s.release_name for s in converted}) != len(converted):
             raise ConversionError("Compose service names produce duplicate Helm release names")
         statuses.extend(self._translate_zenoh_topology(converted))
@@ -1933,7 +1940,8 @@ def main() -> None:
             active_profiles_only=args.active_profiles_only,
         ).convert(dry_run=args.dry_run)
     except ConversionError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        if not exc.reported:
+            print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
 
