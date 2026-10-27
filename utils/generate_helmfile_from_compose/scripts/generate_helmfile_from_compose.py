@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 
 import jinja2
 import yaml
@@ -37,8 +37,7 @@ DEFAULT_ENV_VARS = {
     "__NV_PRIME_RENDER_OFFLOAD",
     "__GLX_VENDOR_LIBRARY_NAME",
     "XAUTHORITY",
-    # The openadservice chart renders this from rmw.zenoh, including the
-    # prefixed router endpoint. Compose's fixed endpoint must not override it.
+    # handled separately after Compose interpolation and service-name mapping
     "ZENOH_CONFIG_OVERRIDE",
 }
 
@@ -53,6 +52,7 @@ MAIN_CHART_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)-main")
 # Mounted YAML files containing this key become the chart's ROS parameter file.
 ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
+HELPERS_TEMPLATE = "templates/_helpers.tpl"
 
 CHART_MAP_KEYS = {"excluded_profiles", "services"}
 SERVICE_MAPPING_KEYS = {
@@ -117,6 +117,7 @@ class ConvertedService:
     runtime_environment: dict[str, str] = field(default_factory=dict)
     runtime_command: list[str] | None = None
     runtime_args: list[str] | None = None
+    uses_name_helper: bool = False
 
 
 class ComposeToHelmfileConverter:
@@ -890,6 +891,138 @@ class ComposeToHelmfileConverter:
         return ports, expose
 
     @staticmethod
+    def _zenoh_settings(override: str) -> list[tuple[str, str]]:
+        """Split overrides without splitting semicolons inside JSON strings."""
+        settings: list[tuple[str, str]] = []
+        start = 0
+        quoted = escaped = False
+        for index, char in enumerate(override + ";"):
+            if escaped:
+                escaped = False
+            elif quoted and char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = not quoted
+            elif char == ";" and not quoted:
+                setting = override[start:index].strip()
+                start = index + 1
+                if setting:
+                    key, separator, value = setting.partition("=")
+                    if not separator:
+                        raise ConversionError(f"invalid Zenoh override: {setting}")
+                    settings.append((key.strip(), value.strip()))
+        if quoted:
+            raise ConversionError("unterminated string in Zenoh override")
+        return settings
+
+    def _zenoh_config(self, override: str) -> dict[str, Any]:
+        settings: dict[str, Any] = {}
+        for key, value in self._zenoh_settings(override):
+            try:
+                settings[key] = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ConversionError(f"Zenoh override {key} must use a JSON value") from exc
+        return settings
+
+    @staticmethod
+    def _map_zenoh_endpoints(value: Any, transform: Callable[[str], str]) -> Any:
+        if isinstance(value, str):
+            return transform(value)
+        if isinstance(value, list):
+            return [
+                ComposeToHelmfileConverter._map_zenoh_endpoints(item, transform)
+                for item in value
+            ]
+        if isinstance(value, dict):
+            return {
+                key: ComposeToHelmfileConverter._map_zenoh_endpoints(item, transform)
+                for key, item in value.items()
+            }
+        raise ConversionError("Zenoh endpoints must contain strings, lists or mappings")
+
+    @staticmethod
+    def _zenoh_network_endpoint(endpoint: str) -> re.Match[str] | None:
+        return re.fullmatch(
+            r"(?P<transport>tcp|udp|tls|quic|ws|wss)/"
+            r"(?P<host>\[[^\]]+\]|[^:/?#]+):(?P<port>\d+)(?P<options>.*)",
+            endpoint,
+        )
+
+    def _zenoh_listener_ports(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
+        if "listen/endpoints" not in settings:
+            return []
+        endpoints = settings["listen/endpoints"]
+        if isinstance(endpoints, dict):
+            mode = settings.get("mode", "client")
+            endpoints = endpoints.get(mode, [])
+        ports: list[dict[str, Any]] = []
+
+        def collect(endpoint: str) -> str:
+            match = self._zenoh_network_endpoint(endpoint)
+            if match and match["host"] not in {"localhost", "127.0.0.1", "[::1]"}:
+                port = int(match["port"])
+                if port:
+                    entry = {
+                        "targetPort": port,
+                        "protocol": "UDP" if match["transport"] in {"udp", "quic"} else "TCP",
+                    }
+                    if entry not in ports:
+                        ports.append(entry)
+            return endpoint
+
+        self._map_zenoh_endpoints(endpoints, collect)
+        return ports
+
+    def _translate_zenoh_topology(
+        self, services: list[ConvertedService],
+    ) -> list[tuple[str, str, str, str]]:
+        """Translate Compose DNS names after all generated resource names are known."""
+        targets = {service.name: service for service in services}
+        statuses: list[tuple[str, str, str, str]] = []
+        for service in services:
+            settings = service.values.get("rmw", {}).get("zenoh", {}).get("configOverrides", {})
+            if "connect/endpoints" not in settings:
+                continue
+            external: set[str] = set()
+
+            def translate(endpoint: str) -> str:
+                match = self._zenoh_network_endpoint(endpoint)
+                if not match:
+                    return endpoint
+                target = targets.get(match["host"])
+                if target is None:
+                    if match["host"] not in {"localhost", "127.0.0.1", "[::1]"}:
+                        external.add(endpoint)
+                    return endpoint
+                defaults = self._chart_defaults(target.chart)
+                effective = self._merge_values(defaults, target.values)
+                if effective.get("instances"):
+                    raise ConversionError(
+                        f"{service.name}: Zenoh target {target.name} uses chart instances; "
+                        "a single Compose endpoint cannot identify an instance"
+                    )
+                name = str(effective.get("name") or target.release_name)
+                service.uses_name_helper = True
+                # endpoint options can contain literal percent signs
+                suffix = f':{match["port"]}{match["options"]}'.replace("%", "%%")
+                address = f'{match["transport"]}/%s{suffix}'
+                return (
+                    "{{ printf " + self._go_string(address)
+                    + ' (tpl $prefixedName (list (env "DEPLOYMENT_PREFIX") '
+                    + self._go_string(name) + ")) | quote }}"
+                )
+
+            settings["connect/endpoints"] = self._map_zenoh_endpoints(
+                settings["connect/endpoints"], translate,
+            )
+            for endpoint in sorted(external):
+                statuses.append((
+                    "⚠", service.name, service.values_dir,
+                    f"Zenoh endpoint outside generated services left unchanged: {endpoint}",
+                ))
+        return statuses
+
+    @staticmethod
     def _normalize_port_values(
         value: Any, published_port: bool
     ) -> list[dict[str, Any]]:
@@ -903,6 +1036,8 @@ class ComposeToHelmfileConverter:
                 "targetPort": int(item["targetPort"]),
                 "protocol": str(item.get("protocol", "TCP")).upper(),
             }
+            if item.get("port") is not None and int(item["port"]) != entry["targetPort"]:
+                entry["port"] = int(item["port"])
             if published_port:
                 for key in ("hostPort", "nodePort"):
                     if item.get(key) is not None:
@@ -1287,6 +1422,15 @@ class ComposeToHelmfileConverter:
         environment = self._environment(
             service_name, service, defaults, ignored_keys=set()
         )
+        zenoh_override = service.get("environment", {}).get("ZENOH_CONFIG_OVERRIDE")
+        zenoh_settings: dict[str, Any] = {}
+        if zenoh_override is not None:
+            if not isinstance(zenoh_override, str):
+                raise ConversionError(f"{service_name}: ZENOH_CONFIG_OVERRIDE must be a string")
+            zenoh_settings = self._zenoh_config(zenoh_override)
+            values["rmw"] = {"zenoh": {"configOverrides": zenoh_settings}}
+            if defaults.get("env", {}).get("ZENOH_CONFIG_OVERRIDE"):
+                environment["ZENOH_CONFIG_OVERRIDE"] = None
         if environment:
             values["env"] = environment
         if volumes:
@@ -1301,11 +1445,24 @@ class ComposeToHelmfileConverter:
                 values["rosParamFileMountPath"] = param_mount_path
 
         ports, expose = self._ports(service, service_name)
+        if zenoh_override:
+            listeners = self._zenoh_listener_ports(zenoh_settings)
+            if listeners:
+                expose = expose or copy.deepcopy(defaults.get("expose") or [])
+                for listener in listeners:
+                    if not any(
+                        item.get("port", item["targetPort"]) == listener["targetPort"]
+                        and item.get("protocol", "TCP").upper() == listener["protocol"]
+                        for item in expose
+                    ):
+                        expose.append(listener)
         if ports and ports != self._normalize_port_values(
             defaults.get("ports"), published_port=True
         ):
             values["ports"] = ports
-        if expose and expose != self._normalize_port_values(
+        if expose and self._normalize_port_values(
+            expose, published_port=False
+        ) != self._normalize_port_values(
             defaults.get("expose"), published_port=False
         ):
             values["expose"] = expose
@@ -1545,6 +1702,15 @@ class ComposeToHelmfileConverter:
                     for item in items
                 ]
 
+        if "env" in values and "rmw" in values:
+            ordered_values = {}
+            for key, value in values.items():
+                if key != "rmw":
+                    ordered_values[key] = value
+                    if key == "env":
+                        ordered_values["rmw"] = values["rmw"]
+            values = ordered_values
+
         content = yaml.safe_dump(
             {VALUES_ROOT: values},
             allow_unicode=True,
@@ -1564,6 +1730,13 @@ class ComposeToHelmfileConverter:
             "{{- end }}\n"
         )
         content = content.replace(root_key, root_key + runtime_values, 1)
+        if service.uses_name_helper:
+            helper = os.path.relpath(HELPERS_TEMPLATE, service.values_dir)
+            content = content.replace(
+                "\n  rmw:\n",
+                '\n{{ $prefixedName := readFile ' + self._go_string(helper) + ' }}\n  rmw:\n',
+                1,
+            )
         for marker, replacement in replacements.items():
             content = content.replace(marker, replacement)
         return content
@@ -1641,6 +1814,7 @@ class ComposeToHelmfileConverter:
             raise ConversionError("; ".join(fatal_errors))
         if len({s.release_name for s in converted}) != len(converted):
             raise ConversionError("Compose service names produce duplicate Helm release names")
+        statuses.extend(self._translate_zenoh_topology(converted))
         converted.sort(
             key=lambda service: (
                 service.values_dir,
@@ -1652,6 +1826,10 @@ class ComposeToHelmfileConverter:
             Path("helmfile.yaml"): self._render_helmfile(converted),
             Path("environments/services.yaml.gotmpl"): self._render_services(converted),
         }
+        if any(service.uses_name_helper for service in converted):
+            artifacts[Path(HELPERS_TEMPLATE)] = self.jinja_env.loader.get_source(
+                self.jinja_env, "_helpers.tpl",
+            )[0]
         for service in converted:
             artifacts[
                 Path(service.values_dir) / "values.yaml.gotmpl"
