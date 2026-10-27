@@ -39,10 +39,10 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 | `services.<compose-service-name>.port_policies.<compose-source-port>` | sets the port policy for a Compose published port |
 | | `hostPort` (default): maps a Compose published host port to a `hostPort` |
 | | `nodePort`: maps a Compose published host port to a `nodePort` |
-| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended as a final `/**` block, which ROS 2 applies last; values may use Compose interpolation such as `${VAR:-default}` |
-| `volume_policies.<compose-service-name>.<mount-target>` | sets the volume policy for a bind mount |
+| `services.<compose-service-name>.volume_policies.<mount-target>` | sets the volume policy for a bind mount |
 | | `copy` (default): copies the source to the Helmfile bundle; mounts as `configMap` (text files < 256 KiB) or `hostPath` |
 | | `bind`: mounts the source from `${PROJECT_PATH}` on the node as `hostPath`; needed for writable or shared mounts |
+| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended as a final `/**` block, which ROS 2 applies last; values may use Compose interpolation such as `${VAR:-default}` |
 
 ```yaml
 excluded_profiles: []
@@ -55,6 +55,8 @@ services: {}
   #     <key>: <value>
   #   port_policies:
   #     <compose-source-port>: hostPort|nodePort
+  #   volume_policies:
+  #     <mount-target>: copy|bind
   #   ros_params:
   #     <ros-parameter-name>: <value>
   # --- for example ---
@@ -66,13 +68,9 @@ services: {}
   # perception.point-cloud-object-detection:
   #   ros_params:
   #     prediction.server_url: ${TRITON_HOST:-triton-server}:8001
-
-volume_policies: {}
-  # <compose-service-name>:
-  #   <mount-target>: copy|bind
-  # --- for example ---
   # monitoring.rviz-carla:
-  #   /docker-ros/ws/monitoring-volume: bind
+  #   volume_policies:
+  #     /docker-ros/ws/monitoring-volume: bind
 ```
 
 ## CI Integration

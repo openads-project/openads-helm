@@ -747,9 +747,15 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
     def test_bind_overrides_directory_copy(self) -> None:
         source = self.converter.compose_dir / "shared"
         source.mkdir()
-        self.converter.chart_map["volume_policies"] = {
-            "shared-service": {"/keep": "bind"}
-        }
+        chart_map = self.converter.compose_dir / "volume-policies.yaml"
+        chart_map.write_text(
+            "services:\n  shared-service:\n    volume_policies:\n"
+            "      /keep: bind\n      /copied: copy\n"
+        )
+        self.converter = ComposeToHelmfileConverter(
+            compose_file=self.converter.compose_file, profiles=[],
+            output_dir=self.converter.output_dir, chart_map=chart_map,
+        )
         volumes, _, _, _, _, directories = self.converter._volumes(
             "shared-service",
             {"volumes": [
@@ -762,6 +768,36 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertIn('requiredEnv "PROJECT_PATH"', volumes[0]["hostPath"])
         self.assertNotIn("assets/shared-service", volumes[0]["hostPath"])
         self.assertFalse(directories)
+        for service_name, target in (("other-service", "/keep"), ("shared-service", "/copied")):
+            with self.subTest(service=service_name, target=target):
+                _, _, _, _, _, directories = self.converter._volumes(
+                    service_name,
+                    {"volumes": [{"type": "bind", "source": str(source), "target": target}]},
+                    {}, "assets/copied-service",
+                )
+                self.assertEqual(directories, {"shared": source})
+
+    def test_rejects_invalid_service_volume_policies(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "volume-policies.yaml"
+        for policies in (None, [], {"relative": "bind"}, {1: "copy"}, {"/keep": "invalid"}, {"/keep": []}):
+            with self.subTest(policies=policies):
+                chart_map.write_text(yaml.safe_dump({"services": {"api": {"volume_policies": policies}}}))
+                with self.assertRaisesRegex(ConversionError, "api: volume_policies"):
+                    ComposeToHelmfileConverter(
+                        compose_file=root / "compose.yml", profiles=[],
+                        output_dir=root / "output", chart_map=chart_map,
+                    )
+
+    def test_rejects_legacy_top_level_volume_policies(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "volume-policies.yaml"
+        chart_map.write_text("volume_policies:\n  api:\n    /keep: bind\n")
+        with self.assertRaisesRegex(ConversionError, "unknown chart map keys: volume_policies"):
+            ComposeToHelmfileConverter(
+                compose_file=root / "compose.yml", profiles=[],
+                output_dir=root / "output", chart_map=chart_map,
+            )
 
     def test_numeric_looking_chart_version_stays_a_string(self) -> None:
         service = ConvertedService(

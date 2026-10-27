@@ -54,8 +54,10 @@ MAIN_CHART_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)-main")
 ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
 
-CHART_MAP_KEYS = {"excluded_profiles", "volume_policies", "services"}
-SERVICE_MAPPING_KEYS = {"chart", "version", "values", "ros_params", "port_policies"}
+CHART_MAP_KEYS = {"excluded_profiles", "services"}
+SERVICE_MAPPING_KEYS = {
+    "chart", "version", "values", "ros_params", "port_policies", "volume_policies",
+}
 # Environment variables read when Helmfile runs.
 # Prefix for release and resource names, so several stacks share a namespace.
 NAME_PREFIX_ENV = "DEPLOYMENT_PREFIX"
@@ -174,6 +176,16 @@ class ComposeToHelmfileConverter:
                 )
             if not isinstance(mapping.get("ros_params", {}), dict):
                 raise ConversionError(f"{name}: ros_params must be a mapping")
+            mounts = mapping.get("volume_policies", {})
+            if not isinstance(mounts, dict) or any(
+                not isinstance(target, str) or not target.startswith("/")
+                or mode not in ("copy", "bind")
+                for target, mode in mounts.items()
+            ):
+                raise ConversionError(
+                    f"{name}: volume_policies must map absolute mount paths "
+                    "to copy or bind"
+                )
             policies = mapping.get("port_policies", [])
             if not isinstance(policies, list):
                 raise ConversionError(f"{name}: port_policies must be a list of single-port mappings")
@@ -203,19 +215,6 @@ class ComposeToHelmfileConverter:
         ):
             raise ConversionError("excluded_profiles must be a list of profile names")
         self.excluded_profiles = frozenset(excluded_profiles)
-        volume_policies = self.chart_map.get("volume_policies", {})
-        if not isinstance(volume_policies, dict):
-            raise ConversionError("volume_policies must be a mapping")
-        for service_name, mounts in volume_policies.items():
-            if not isinstance(mounts, dict) or any(
-                not isinstance(target, str) or not target.startswith("/")
-                or mode not in {"copy", "bind"}
-                for target, mode in mounts.items()
-            ):
-                raise ConversionError(
-                    f"{service_name}: volume_policies must map absolute mount paths "
-                    "to copy or bind"
-                )
 
         template_dir = Path(__file__).resolve().parent.parent / "templates"
         self.jinja_env = jinja2.Environment(
@@ -228,7 +227,7 @@ class ComposeToHelmfileConverter:
         self.jinja_env.filters["go_string"] = self._go_string
 
     def _volume_policy(self, service_name: str, target: str) -> str | None:
-        return self.chart_map.get("volume_policies", {}).get(service_name, {}).get(target)
+        return self.service_mappings.get(service_name, {}).get("volume_policies", {}).get(target)
 
     @staticmethod
     def _merge_values(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
