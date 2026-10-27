@@ -71,6 +71,16 @@ spec:
       - name: "{{ $name }}"
         image: "{{ $values.image }}"
         imagePullPolicy: "{{ $values.imagePullPolicy }}"
+        {{- with $values.ports }}
+        ports:
+        {{- range . }}
+        - containerPort: {{ .targetPort }}
+          {{- if .hostPort }}
+          hostPort: {{ .hostPort }}
+          {{- end }}
+          protocol: "{{ .protocol | default "TCP" }}"
+        {{- end }}
+        {{- end }}
         {{- with $values.command }}
         command:
         {{- toYaml . | nindent 8 }}
