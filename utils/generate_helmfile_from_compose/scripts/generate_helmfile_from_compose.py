@@ -186,14 +186,11 @@ class ComposeToHelmfileConverter:
                     f"{name}: volume_policies must map absolute mount paths "
                     "to copy or bind"
                 )
-            policies = mapping.get("port_policies", [])
-            if not isinstance(policies, list):
-                raise ConversionError(f"{name}: port_policies must be a list of single-port mappings")
+            policies = mapping.get("port_policies", {})
+            if not isinstance(policies, dict):
+                raise ConversionError(f"{name}: port_policies must be a mapping")
             self.port_policies[name] = {}
-            for policy in policies:
-                if not isinstance(policy, dict) or len(policy) != 1:
-                    raise ConversionError(f"{name}: port_policies entries must be single-port mappings")
-                port, mode = next(iter(policy.items()))
+            for port, mode in policies.items():
                 if (
                     isinstance(port, bool)
                     or not isinstance(port, (int, str))

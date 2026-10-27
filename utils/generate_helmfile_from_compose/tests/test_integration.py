@@ -29,7 +29,7 @@ class ComposeFixtureIntegrationTest(unittest.TestCase):
             output_dir = root / "generated"
             chart_map = root / "chart-map.yaml"
             chart_map.write_text(
-                "services:\n  api:\n    port_policies:\n      - 30502: nodePort\n",
+                "services:\n  api:\n    port_policies:\n      30502: nodePort\n",
                 encoding="utf-8",
             )
             generator = ComposeToHelmfileConverter(

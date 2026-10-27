@@ -143,7 +143,8 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         chart_map = root / "ports.yaml"
         chart_map.write_text(
             "services:\n  api:\n    port_policies:\n"
-            "      - 30502: nodePort\n      - '8080': hostPort\n"
+            "      30502: nodePort\n      '8080': hostPort\n"
+            "  other:\n    port_policies: {}\n"
         )
         converter = ComposeToHelmfileConverter(
             compose_file=root / "compose.yml", profiles=[],
@@ -190,10 +191,10 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         root = Path(self.temp_dir.name)
         chart_map = root / "ports.yaml"
         for policies in (
-            None, {}, [7502], [{}], [{7502: "nodePort", 7503: "hostPort"}],
-            [{7502: "invalid"}], [{0: "hostPort"}], [{65536: "hostPort"}],
-            [{True: "hostPort"}], [{7502.5: "hostPort"}], [{"bad": "nodePort"}],
-            [{7502: []}], [{7502: "nodePort"}, {"7502": "hostPort"}],
+            None, [], [7502], [{7502: "nodePort"}],
+            {7502: "invalid"}, {0: "hostPort"}, {65536: "hostPort"},
+            {True: "hostPort"}, {7502.5: "hostPort"}, {"bad": "nodePort"},
+            {7502: []}, {7502: "nodePort", "7502": "hostPort"},
         ):
             with self.subTest(policies=policies):
                 chart_map.write_text(yaml.safe_dump({"services": {"api": {"port_policies": policies}}}))
