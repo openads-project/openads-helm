@@ -599,9 +599,9 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.converter.chart_map["services"][service_name] = {
             "chart": "oci://example.test/map-server",
             "version": "1.0.0",
-            "values": {"volumes": [{
+            "values": {"openadservice": {"volumes": [{
                 "mountPath": "/data/maps", "hostPath": ".runtime/maps",
-            }]},
+            }]}},
         }
         with patch.object(
             self.converter, "_chart_defaults",
@@ -616,6 +616,119 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             {"/data/maps", "/lanelet/lanelet.osm"},
         )
         self.assertIn('requiredEnv "PROJECT_PATH"', self.converter._render_values(converted))
+
+    def test_chart_map_values_are_release_values(self) -> None:
+        self.converter.chart_map["services"]["router"] = {
+            "chart": "oci://example.test/zenoh-router",
+            "version": "1.0.0",
+            "values": {
+                "enableAccessControl": False,
+                "openadservice": {"gpu": True},
+            },
+        }
+        with patch.object(
+            self.converter, "_chart_defaults",
+            return_value={"name": "router", "image": "example.test/router:1"},
+        ):
+            converted = self.converter._convert_service(
+                "router", {"image": "example.test/router:1"}
+            )
+
+        self.assertEqual(converted.values, {"gpu": True})
+        self.assertEqual(converted.parent_values, {"enableAccessControl": False})
+        values = self.converter._render_values(converted)
+        self.assertTrue(values.startswith("openadservice:\n  namePrefix:"))
+        self.assertIn("\n  gpu: true\n", values)
+        self.assertTrue(values.endswith("\nenableAccessControl: false\n"))
+
+    def test_rejects_invalid_chart_map_service_values(self) -> None:
+        self.converter.chart_map["services"]["router"] = {
+            "chart": "oci://example.test/zenoh-router",
+            "version": "1.0.0",
+            "values": {"openadservice": ["gpu"]},
+        }
+        with (
+            patch.object(self.converter, "_chart_defaults", return_value={}),
+            self.assertRaisesRegex(ConversionError, "router: chart values openadservice"),
+        ):
+            self.converter._convert_service("router", {"image": "example.test/router:1"})
+
+    def test_base_chart_takes_values_at_top_level(self) -> None:
+        chart = ChartRef("oci://example.test/openadservice", "1.2.0")
+        base_values = {"name": None, "gpu": False, "ports": []}
+
+        def fetch(command, **kwargs):
+            destination = Path(command[command.index("--destination") + 1])
+            with tarfile.open(destination / "openadservice-1.2.0.tgz", "w:gz") as archive:
+                for name, content in (
+                    ("openadservice/Chart.yaml", "name: openadservice\n"),
+                    ("openadservice/values.yaml", yaml.safe_dump(base_values)),
+                ):
+                    data = content.encode()
+                    entry = tarfile.TarInfo(name)
+                    entry.size = len(data)
+                    archive.addfile(entry, io.BytesIO(data))
+
+        self.converter.chart_map["services"]["talker"] = {
+            "chart": chart.url,
+            "version": chart.version,
+            "values": {"gpu": True},
+        }
+        with patch("generate_helmfile_from_compose.subprocess.run", side_effect=fetch):
+            self.assertEqual(self.converter._chart_defaults(chart), base_values)
+            converted = self.converter._convert_service(
+                "talker", {"image": "example.test/talker:1"}
+            )
+
+        self.assertIs(converted.values["gpu"], True)
+        self.assertEqual(converted.parent_values, {})
+        values = self.converter._render_values(converted)
+        self.assertTrue(values.startswith(
+            'namePrefix: {{ env "DEPLOYMENT_PREFIX" | quote }}\n'
+            '{{- if env "NODE" }}\n'
+            "nodeSelector:\n"
+            '  kubernetes.io/hostname: {{ env "NODE" | quote }}\n'
+            "{{- end }}\n"
+        ))
+        self.assertIn("\ngpu: true\n", values)
+        self.assertNotIn("openadservice:", values)
+
+    def test_block_indentation_follows_values_root(self) -> None:
+        for chart, indent in (
+            (ChartRef("oci://example.test/service", "1.0.0"), 2),
+            (ChartRef("oci://example.test/openadservice", "1.2.0"), 0),
+        ):
+            with self.subTest(chart=chart.url):
+                service = ConvertedService(
+                    name="service",
+                    release_name="service",
+                    chart=chart,
+                    values_dir="service",
+                    values={
+                        "args": ["bash", "-c", "echo a\necho b\n"],
+                        "volumes": [{"mountPath": "/config.txt", "dataFile": "config.txt"}],
+                    },
+                    param_source=Path("params.yml"),
+                    param_filename="params.yml",
+                    ros_params={"timeout_s": 5.0},
+                )
+                values = self.converter._render_values(service)
+                pad = " " * indent
+                self.assertIn(
+                    f"{pad}- |\n{pad}  echo a\n{pad}  echo b\n", values,
+                )
+                self.assertIn(
+                    f'{pad}  data: |\n{{{{ readFile "config.txt" | indent {indent + 4} }}}}\n',
+                    values,
+                )
+                self.assertIn(
+                    f"{pad}rosParamFileData: |\n"
+                    f'{{{{ readFile "params.yml" | indent {indent + 2} }}}}\n'
+                    f"{pad}  /**:\n"
+                    f"{pad}    ros__parameters:\n"
+                    f"{pad}      timeout_s: 5.0\n",
+                    values,
+                )
 
     def test_variable_directory_bind_uses_runtime_host_root(self) -> None:
         root = self.converter.compose_dir

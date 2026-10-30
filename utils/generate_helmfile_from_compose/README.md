@@ -35,7 +35,7 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 | --- | --- |
 | `excluded_profiles` | excludes services in these Compose profiles, even if active |
 | `services.<compose-service-name>.chart/version` | overrides the chart and version derived from the service's image |
-| `services.<compose-service-name>.values` | deep-merges into the generated Helm values |
+| `services.<compose-service-name>.values` | deep-merges into the release's Helm values |
 | `services.<compose-service-name>.port_policies.<compose-source-port>` | sets the port policy for a Compose published port |
 | | `hostPort` (default): maps a Compose published host port to a `hostPort` |
 | | `nodePort`: maps a Compose published host port to a `nodePort` |
@@ -52,7 +52,9 @@ services: {}
   #   chart: <oci-chart-url>
   #   version: <chart-version>
   #   values:
-  #     <key>: <value>
+  #     <chart-key>: <value>
+  #     openadservice:
+  #       <openadservice-key>: <value>
   #   port_policies:
   #     <compose-source-port>: hostPort|nodePort
   #   volume_policies:
@@ -63,8 +65,15 @@ services: {}
   # zenoh-router:
   #   chart: oci://ghcr.io/openads-project/openads-helm/zenoh-router
   #   version: 0.2.10
+  #   values:
+  #     allowedRosTopics: [/tf]
   #   port_policies:
   #     7447: nodePort
+  # talker:
+  #   chart: oci://ghcr.io/openads-project/openads-helm/openadservice
+  #   version: 1.2.0
+  #   values:
+  #     gpu: true
   # perception.point-cloud-object-detection:
   #   ros_params:
   #     prediction.server_url: ${TRITON_HOST:-triton-server}:8001
