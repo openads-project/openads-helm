@@ -212,14 +212,14 @@ spec:
     # Publish OCI artifact
     set -euo pipefail
     if [[ -z "${CI_REGISTRY_IMAGE:-}" ]]; then
-      echo "Container registry is disabled for ${CI_PROJECT_PATH}; skipping OCI publication" >&2
-    else
-      ref_name="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}"
-      printf '%s' "$CI_REGISTRY_PASSWORD" | oras login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-      oras push \
-        --artifact-type application/vnd.openads.helmfile.v1 \
-        --annotation "org.opencontainers.image.revision=${CI_COMMIT_SHA}" \
-        --annotation "org.opencontainers.image.source=${CI_PROJECT_URL}" \
-        "${CI_REGISTRY_IMAGE}/helmfile:${ref_name//[^a-zA-Z0-9._-]/-}" \
-        "${archive_name}:application/vnd.openads.helmfile.layer.v1.tar+gzip"
+      echo "Container registry is disabled for ${CI_PROJECT_PATH}; enable it to publish the Helmfile bundle" >&2
+      exit 1
     fi
+    ref_name="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}"
+    printf '%s' "$CI_REGISTRY_PASSWORD" | oras login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    oras push \
+      --artifact-type application/vnd.openads.helmfile.v1 \
+      --annotation "org.opencontainers.image.revision=${CI_COMMIT_SHA}" \
+      --annotation "org.opencontainers.image.source=${CI_PROJECT_URL}" \
+      "${CI_REGISTRY_IMAGE}/helmfile:${ref_name//[^a-zA-Z0-9._-]/-}" \
+      "${archive_name}:application/vnd.openads.helmfile.layer.v1.tar+gzip"
