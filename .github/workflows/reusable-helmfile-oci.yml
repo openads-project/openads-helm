@@ -65,7 +65,7 @@ on:
         description: Caller-relative directory represented by the archive contents.
         value: ${{ jobs.generate.outputs.bundle-dir }}
       oci-reference:
-        description: OCI repository receiving every build, tagged with the ref slug and sha-<commit>.
+        description: OCI repository receiving every build, tagged with the ref slug.
         value: ${{ jobs.generate.outputs.oci-reference }}
 
 permissions:
@@ -201,7 +201,7 @@ jobs:
           set -euo pipefail
           {
             echo "oci-reference=ghcr.io/${GITHUB_REPOSITORY,,}/helmfile"
-            echo "tags=${REF_NAME//[^a-zA-Z0-9._-]/-},sha-${GITHUB_SHA}"
+            echo "tag=${REF_NAME//[^a-zA-Z0-9._-]/-}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up ORAS
@@ -221,12 +221,12 @@ jobs:
         env:
           ARCHIVE_NAME: ${{ steps.archive.outputs.archive-name }}
           OCI_REFERENCE: ${{ steps.publication.outputs.oci-reference }}
-          OCI_TAGS: ${{ steps.publication.outputs.tags }}
+          OCI_TAG: ${{ steps.publication.outputs.tag }}
         run: |
           set -euo pipefail
           oras push \
             --artifact-type application/vnd.openads.helmfile.v1 \
             --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-            "${OCI_REFERENCE}:${OCI_TAGS}" \
+            "${OCI_REFERENCE}:${OCI_TAG}" \
             "${ARCHIVE_NAME}:application/vnd.openads.helmfile.layer.v1.tar+gzip"

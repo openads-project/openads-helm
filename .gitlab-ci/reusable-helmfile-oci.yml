@@ -220,6 +220,6 @@ spec:
         --artifact-type application/vnd.openads.helmfile.v1 \
         --annotation "org.opencontainers.image.revision=${CI_COMMIT_SHA}" \
         --annotation "org.opencontainers.image.source=${CI_PROJECT_URL}" \
-        "${CI_REGISTRY_IMAGE}/helmfile:${ref_name//[^a-zA-Z0-9._-]/-},sha-${CI_COMMIT_SHA}" \
+        "${CI_REGISTRY_IMAGE}/helmfile:${ref_name//[^a-zA-Z0-9._-]/-}" \
         "${archive_name}:application/vnd.openads.helmfile.layer.v1.tar+gzip"
     fi
