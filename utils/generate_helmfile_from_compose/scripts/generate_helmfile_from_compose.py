@@ -54,8 +54,10 @@ MAIN_CHART_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)-main")
 ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
 
-CHART_MAP_KEYS = {"excluded_profiles", "volume_policies", "services"}
-SERVICE_MAPPING_KEYS = {"chart", "version", "values", "ros_params"}
+CHART_MAP_KEYS = {"excluded_profiles", "services"}
+SERVICE_MAPPING_KEYS = {
+    "chart", "version", "values", "ros_params", "port_policies", "volume_policies",
+}
 # Environment variables read when Helmfile runs.
 # Prefix for release and resource names, so several stacks share a namespace.
 NAME_PREFIX_ENV = "DEPLOYMENT_PREFIX"
@@ -158,6 +160,7 @@ class ComposeToHelmfileConverter:
         self.service_mappings = self.chart_map.get("services", {})
         if not isinstance(self.service_mappings, dict):
             raise ConversionError("services must be a mapping")
+        self.port_policies: dict[str, dict[int, str]] = {}
         for name, mapping in self.service_mappings.items():
             if (
                 not isinstance(mapping, dict)
@@ -173,6 +176,35 @@ class ComposeToHelmfileConverter:
                 )
             if not isinstance(mapping.get("ros_params", {}), dict):
                 raise ConversionError(f"{name}: ros_params must be a mapping")
+            mounts = mapping.get("volume_policies", {})
+            if not isinstance(mounts, dict) or any(
+                not isinstance(target, str) or not target.startswith("/")
+                or mode not in ("copy", "bind")
+                for target, mode in mounts.items()
+            ):
+                raise ConversionError(
+                    f"{name}: volume_policies must map absolute mount paths "
+                    "to copy or bind"
+                )
+            policies = mapping.get("port_policies", {})
+            if not isinstance(policies, dict):
+                raise ConversionError(f"{name}: port_policies must be a mapping")
+            self.port_policies[name] = {}
+            for port, mode in policies.items():
+                if (
+                    isinstance(port, bool)
+                    or not isinstance(port, (int, str))
+                    or not str(port).isdigit()
+                    or not 1 <= int(port) <= 65535
+                    or mode not in ("hostPort", "nodePort")
+                ):
+                    raise ConversionError(
+                        f"{name}: port_policies must map published ports (1-65535) "
+                        "to hostPort or nodePort"
+                    )
+                if int(port) in self.port_policies[name]:
+                    raise ConversionError(f"{name}: duplicate port policy for {port}")
+                self.port_policies[name][int(port)] = mode
         excluded_profiles = self.chart_map.get("excluded_profiles", [])
         if (
             not isinstance(excluded_profiles, list)
@@ -180,19 +212,6 @@ class ComposeToHelmfileConverter:
         ):
             raise ConversionError("excluded_profiles must be a list of profile names")
         self.excluded_profiles = frozenset(excluded_profiles)
-        volume_policies = self.chart_map.get("volume_policies", {})
-        if not isinstance(volume_policies, dict):
-            raise ConversionError("volume_policies must be a mapping")
-        for service_name, mounts in volume_policies.items():
-            if not isinstance(mounts, dict) or any(
-                not isinstance(target, str) or not target.startswith("/")
-                or mode not in {"copy", "bind"}
-                for target, mode in mounts.items()
-            ):
-                raise ConversionError(
-                    f"{service_name}: volume_policies must map absolute mount paths "
-                    "to copy or bind"
-                )
 
         template_dir = Path(__file__).resolve().parent.parent / "templates"
         self.jinja_env = jinja2.Environment(
@@ -205,7 +224,7 @@ class ComposeToHelmfileConverter:
         self.jinja_env.filters["go_string"] = self._go_string
 
     def _volume_policy(self, service_name: str, target: str) -> str | None:
-        return self.chart_map.get("volume_policies", {}).get(service_name, {}).get(target)
+        return self.service_mappings.get(service_name, {}).get("volume_policies", {}).get(target)
 
     @staticmethod
     def _merge_values(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -830,9 +849,8 @@ class ComposeToHelmfileConverter:
             result[key] = value
         return result
 
-    @staticmethod
     def _ports(
-        service: dict[str, Any],
+        self, service: dict[str, Any], service_name: str = "",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         ports: list[dict[str, Any]] = []
         expose: list[dict[str, Any]] = []
@@ -846,7 +864,9 @@ class ComposeToHelmfileConverter:
             if item.get("published") is None:
                 expose.append(entry)
             else:
-                entry["nodePort"] = int(item["published"])
+                published = int(item["published"])
+                mode = self.port_policies.get(service_name, {}).get(published, "hostPort")
+                entry[mode] = published
                 ports.append(entry)
         for item in service.get("expose", []):
             if isinstance(item, int):
@@ -861,7 +881,7 @@ class ComposeToHelmfileConverter:
                 )
         ports.sort(
             key=lambda item: (
-                item["nodePort"],
+                item.get("hostPort", item.get("nodePort", 0)),
                 item["targetPort"],
                 item["protocol"],
             )
@@ -871,7 +891,7 @@ class ComposeToHelmfileConverter:
 
     @staticmethod
     def _normalize_port_values(
-        value: Any, node_port: bool
+        value: Any, published_port: bool
     ) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             return []
@@ -883,13 +903,15 @@ class ComposeToHelmfileConverter:
                 "targetPort": int(item["targetPort"]),
                 "protocol": str(item.get("protocol", "TCP")).upper(),
             }
-            if node_port and item.get("nodePort") is not None:
-                entry["nodePort"] = int(item["nodePort"])
+            if published_port:
+                for key in ("hostPort", "nodePort"):
+                    if item.get(key) is not None:
+                        entry[key] = int(item[key])
             normalized.append(entry)
         return sorted(
             normalized,
             key=lambda item: (
-                item.get("nodePort", 0),
+                item.get("hostPort", item.get("nodePort", 0)),
                 item["targetPort"],
                 item["protocol"],
             ),
@@ -915,9 +937,9 @@ class ComposeToHelmfileConverter:
             dependency = self.raw_services.get(name, {})
             image = str(dependency.get("image", ""))
             defaults = self._chart_defaults(self._chart_ref(name, image))
-            _, compose_expose = self._ports(dependency)
+            _, compose_expose = self._ports(dependency, name)
             chart_expose = self._normalize_port_values(
-                defaults.get("expose"), node_port=False
+                defaults.get("expose"), published_port=False
             )
             exposed = compose_expose or chart_expose
             tcp_ports = [
@@ -1278,13 +1300,13 @@ class ComposeToHelmfileConverter:
             if param_mount_path != defaults.get("rosParamFileMountPath"):
                 values["rosParamFileMountPath"] = param_mount_path
 
-        ports, expose = self._ports(service)
+        ports, expose = self._ports(service, service_name)
         if ports and ports != self._normalize_port_values(
-            defaults.get("ports"), node_port=True
+            defaults.get("ports"), published_port=True
         ):
             values["ports"] = ports
         if expose and expose != self._normalize_port_values(
-            defaults.get("expose"), node_port=False
+            defaults.get("expose"), published_port=False
         ):
             values["expose"] = expose
 
@@ -1436,7 +1458,7 @@ class ComposeToHelmfileConverter:
                 return raw_template(value)
             if isinstance(value, str) and self._contains_host_expression(value):
                 expression = self._compose_expression(value)
-                if key in {"port", "targetPort", "nodePort"}:
+                if key in {"port", "targetPort", "nodePort", "hostPort"}:
                     expression = f"{expression} | int"
                 return template_value(expression, quote=(key == "host"))
             return value

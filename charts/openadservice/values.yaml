@@ -80,11 +80,12 @@ initContainers: []
 # nodeSelector is a map of node labels for pod scheduling
 nodeSelector: {}
 
-# ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` to create `NodePort` services
+# ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` or `targetPort`, `hostPort`, `protocol` to create `NodePort` services or `hostPort` mappings
 ports: []
 # - port:         # source port (defaults to `targetPort` if not specified)
 #   targetPort:   # pod target port
 #   nodePort:     # node source port
+#   hostPort:     # host source port
 #   protocol      # protocol (default: `TCP`)
 
 # expose is a list of maps with `port`, `targetPort`, `protocol` to create `ClusterIP` services
