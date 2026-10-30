@@ -28,7 +28,7 @@ spec:
       type: boolean
       default: false
     artifact-name:
-      description: Job artifact and archive name prefix.
+      description: Archive name prefix inside the OCI artifact.
       default: helmfile
     job-name:
       description: Name of the generated job.
@@ -209,50 +209,17 @@ spec:
     archive_digest="$(sha256sum "$archive_path" | cut -d' ' -f1)"
     echo "${archive_digest}  ${archive_path}"
   - |-
-    # Determine OCI publication
-    set -euo pipefail
-    oci_reference="${CI_REGISTRY_IMAGE:+${CI_REGISTRY_IMAGE}/helmfile}"
-    publish=false
-    tags=()
-    if [[ "$CI_PIPELINE_SOURCE" == "push" && "${CI_COMMIT_BRANCH:-}" == "$CI_DEFAULT_BRANCH" ]]; then
-      publish=true
-      tags+=("${CI_DEFAULT_BRANCH//\//-}" "sha-${CI_COMMIT_SHA}")
-    elif [[ "$CI_PIPELINE_SOURCE" == "push" && "${CI_COMMIT_TAG:-}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      publish=true
-      tags+=("$CI_COMMIT_TAG" "sha-${CI_COMMIT_SHA}")
-    fi
-    if [[ "$publish" == "true" && -z "$oci_reference" ]]; then
-      echo "Container registry is disabled for ${CI_PROJECT_PATH}; skipping OCI publication" >&2
-      publish=false
-    fi
-
-    {
-      echo "OPENADS_HELMFILE_ARTIFACT_NAME=${ARTIFACT_NAME}"
-      echo "OPENADS_HELMFILE_ARCHIVE_NAME=${archive_name}"
-      echo "OPENADS_HELMFILE_ARCHIVE_PATH=${archive_name}"
-      echo "OPENADS_HELMFILE_ARCHIVE_DIGEST=${archive_digest}"
-      echo "OPENADS_HELMFILE_OUTPUT_DIR=${OUTPUT_DIR_INPUT}"
-      echo "OPENADS_HELMFILE_ENTRYPOINT=$(realpath --relative-to "$workspace" "$helmfile_entrypoint")"
-      echo "OPENADS_HELMFILE_BUNDLE_DIR=$(realpath --relative-to "$workspace" "$bundle_dir")"
-      echo "OPENADS_HELMFILE_OCI_REFERENCE=${oci_reference}"
-    } > "${workspace}/helmfile-oci.env"
-  - |-
     # Publish OCI artifact
     set -euo pipefail
-    if [[ "$publish" == "true" ]]; then
-      printf '%s' "$CI_REGISTRY_PASSWORD" | oras login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
-      tag_list="$(IFS=,; printf '%s' "${tags[*]}")"
-      oras push \
-        --artifact-type application/vnd.openads.helmfile.v1 \
-        --annotation "org.opencontainers.image.revision=${CI_COMMIT_SHA}" \
-        --annotation "org.opencontainers.image.source=${CI_PROJECT_URL}" \
-        "${oci_reference}:${tag_list}" \
-        "${archive_name}:application/vnd.openads.helmfile.layer.v1.tar+gzip"
+    if [[ -z "${CI_REGISTRY_IMAGE:-}" ]]; then
+      echo "Container registry is disabled for ${CI_PROJECT_PATH}; enable it to publish the Helmfile bundle" >&2
+      exit 1
     fi
-  artifacts:
-    name: $[[ inputs.artifact-name ]]
-    paths:
-    - $[[ inputs.artifact-name ]]-${CI_COMMIT_SHA}.tar.gz
-    expire_in: 7 days
-    reports:
-      dotenv: helmfile-oci.env
+    ref_name="${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}"
+    printf '%s' "$CI_REGISTRY_PASSWORD" | oras login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    oras push \
+      --artifact-type application/vnd.openads.helmfile.v1 \
+      --annotation "org.opencontainers.image.revision=${CI_COMMIT_SHA}" \
+      --annotation "org.opencontainers.image.source=${CI_PROJECT_URL}" \
+      "${CI_REGISTRY_IMAGE}/helmfile:${ref_name//[^a-zA-Z0-9._-]/-}" \
+      "${archive_name}:application/vnd.openads.helmfile.layer.v1.tar+gzip"

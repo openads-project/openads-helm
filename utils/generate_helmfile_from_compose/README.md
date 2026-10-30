@@ -84,4 +84,6 @@ services: {}
 
 ## CI Integration
 
-For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) is provided that runs the generator and publishes the generated Helmfile setup as an workflow artifact and OCI bundle. See [openadsim](https://github.com/openads-project/openadsim/blob/main/.github/workflows/helmfile-oci.yml) for an integration example.
+For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) and GitLab template ([`reusable-helmfile-oci.yml`](../../.gitlab-ci/reusable-helmfile-oci.yml)) are provided that run the generator and publish the generated Helmfile setup as OCI bundle `<registry>/<repository>/helmfile:<ref>`. See [openadsim](https://github.com/openads-project/openadsim/blob/main/.github/workflows/helmfile-oci.yml) for an integration example.
+
+Bundles older than one month, except `main` and `vX.Y.Z`, can be deleted with [`reusable-helmfile-cleanup.yml`](../../.github/workflows/reusable-helmfile-cleanup.yml) or a matching GitLab cleanup policy.
