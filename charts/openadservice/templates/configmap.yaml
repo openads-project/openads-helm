@@ -13,6 +13,14 @@ context exposes these merged values and Helm's built-in objects to tpl calls bel
 {{- $_ := set $values "name" $name }}
 {{- if and $values.enable $values.enableConfigMap }}
 {{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
+{{- include "openadservice.applyOverrides" (dict "manifest" (include "openadservice.configMap" $ctx) "overrides" $values.overrides.configMap) }}
+{{- end }}
+{{- end }}
+
+{{- define "openadservice.configMap" }}
+{{- $values := .Values }}
+{{- $name := $values.name }}
+{{- $ctx := . }}
 apiVersion: v1
 kind: ConfigMap
 {{- $sessionConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_SESSION_CONFIG.json5")) }}
@@ -58,7 +66,6 @@ data:
   {{ .mountPath | base | quote }}: |-
 {{ tpl .data $ctx | indent 4 }}
 ---
-{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
