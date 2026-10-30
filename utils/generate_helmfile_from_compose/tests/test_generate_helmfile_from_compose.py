@@ -125,14 +125,16 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
                 {"target": 80, "published": "8080"},
                 {"target": 7447},
             ],
-            "expose": [9000, "9001/udp"],
+            "expose": [80, "7502/udp", 9000, "9001/udp"],
         })
         self.assertEqual(ports, [
             {"targetPort": 7502, "hostPort": 7502, "protocol": "UDP"},
             {"targetPort": 80, "hostPort": 8080, "protocol": "TCP"},
         ])
         self.assertEqual(expose, [
+            {"targetPort": 80, "protocol": "TCP"},
             {"targetPort": 7447, "protocol": "TCP"},
+            {"targetPort": 7502, "protocol": "UDP"},
             {"targetPort": 9000, "protocol": "TCP"},
             {"targetPort": 9001, "protocol": "UDP"},
         ])
@@ -186,6 +188,30 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
                     self.assertNotIn("ports", values)
                 else:
                     self.assertEqual(values["ports"], expected)
+
+    def test_published_ports_preserve_chart_exposure_and_deduplicate_internal_ports(self) -> None:
+        service = {
+            "image": "example.test/api:1",
+            "ports": [
+                {"target": 80, "published": "18080"},
+                {"target": 80, "published": "28080"},
+                {"target": 80, "published": "18080", "protocol": "udp"},
+            ],
+            "expose": [80],
+        }
+        with (
+            patch.object(self.converter, "_chart_ref", return_value=ChartRef("local", "1")),
+            patch.object(self.converter, "_chart_defaults", return_value={
+                "expose": [{"targetPort": 7447}],
+            }),
+        ):
+            values = self.converter._convert_service("api", service).values
+        self.assertEqual(values["expose"], [
+            {"targetPort": 7447},
+            {"targetPort": 80, "protocol": "TCP"},
+            {"targetPort": 80, "protocol": "UDP"},
+        ])
+        self.assertEqual(len(values["ports"]), 3)
 
     def test_rejects_invalid_port_policies(self) -> None:
         root = Path(self.temp_dir.name)
@@ -424,6 +450,20 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
 
         self.assertEqual(checks, [{"host": "carla-server", "port": 2000}])
 
+    def test_dependency_uses_generated_service_name_and_tcp_exposure(self) -> None:
+        self.converter.raw_services = {
+            "drivers.zed-camera.mediamtx": {
+                "image": "example.test/mediamtx:1",
+                "expose": ["8554/tcp", "8000/udp", "8001/udp"],
+            },
+        }
+        with (
+            patch.object(self.converter, "_chart_ref", return_value=ChartRef("local", "1")),
+            patch.object(self.converter, "_chart_defaults", return_value={}),
+        ):
+            checks = self.converter._depends_on({"depends_on": ["drivers.zed-camera.mediamtx"]})
+        self.assertEqual(checks, [{"host": "mediamtx", "port": 8554}])
+
     def test_environment_keeps_compose_source_order(self) -> None:
         self.converter.raw_services["bridge"] = {
             "environment": {
@@ -440,6 +480,21 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         environment = self.converter._environment("bridge", resolved, defaults)
 
         self.assertEqual(list(environment), ["USE_SIM_TIME", "HOST", "PORT"])
+
+    def test_environment_keeps_chart_default_service_hosts(self) -> None:
+        self.converter.raw_services = {"bridge": {}, "carla-server": {}, "triton-server": {}}
+        resolved = {"environment": {
+            "CARLA_HOST": "carla-server",
+            "TRITON_SERVER_URL": "triton-server:8001",
+            "LOG_LEVEL": "info",
+        }}
+        defaults = {"env": resolved["environment"]}
+
+        environment = self.converter._environment("bridge", resolved, defaults)
+
+        self.assertEqual(environment, {
+            "CARLA_HOST": "carla-server", "TRITON_SERVER_URL": "triton-server:8001",
+        })
 
     def test_chart_defaults_include_bundled_base_and_service_overrides(self) -> None:
         base_values = {
