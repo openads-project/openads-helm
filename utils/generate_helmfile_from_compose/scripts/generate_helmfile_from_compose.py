@@ -844,6 +844,7 @@ class ComposeToHelmfileConverter:
             value = self._coerce_scalar(raw_environment[key])
             default_value = self._coerce_scalar(chart_environment.get(key))
             source_value = source_environment.get(key)
+            service_host = self._service_host(value)
             if (
                 key in chart_environment
                 and value == default_value
@@ -851,6 +852,8 @@ class ComposeToHelmfileConverter:
                     isinstance(source_value, str)
                     and self._contains_host_expression(source_value)
                 )
+                # kept for the deployment prefix applied by _translate_service_urls
+                and not (service_host and service_host[1] in self.raw_services)
             ):
                 continue
             result[key] = value
@@ -1028,20 +1031,34 @@ class ComposeToHelmfileConverter:
                 ))
         return statuses
 
+    @staticmethod
+    def _service_host(value: Any) -> tuple[int, str] | None:
+        """Locate the host in a URL or a bare host[:port] value."""
+        if not isinstance(value, str):
+            return None
+        match = re.fullmatch(r"(?P<host>[A-Za-z0-9][A-Za-z0-9._-]*)(?::\d+)?", value)
+        if match:
+            return 0, match["host"]
+        try:
+            url = urllib.parse.urlsplit(value)
+            host = url.hostname
+        except ValueError:
+            return None
+        if not url.scheme or not url.netloc or not host:
+            return None
+        return value.index("://") + 3 + url.netloc.rfind("@") + 1, host
+
     def _translate_service_urls(self, services: list[ConvertedService]) -> None:
-        """Translate literal URL hosts that reference generated Compose services."""
+        """Translate literal hosts that reference generated Compose services."""
         targets = {service.name: service for service in services}
         for service in services:
             for key, value in service.values.get("env", {}).items():
-                if not isinstance(value, str) or key in service.runtime_environment:
+                if key in service.runtime_environment:
                     continue
-                try:
-                    url = urllib.parse.urlsplit(value)
-                    host = url.hostname
-                except ValueError:
+                reference = self._service_host(value)
+                if reference is None or reference[1] not in targets:
                     continue
-                if not url.scheme or not url.netloc or host not in targets:
-                    continue
+                start, host = reference
                 target = targets[host]
                 effective = self._merge_values(self._chart_defaults(target.chart), target.values)
                 if effective.get("instances"):
@@ -1050,7 +1067,6 @@ class ComposeToHelmfileConverter:
                         "a single Compose hostname cannot identify an instance"
                     )
                 name = str(effective.get("name") or target.release_name)
-                start = value.index("://") + 3 + url.netloc.rfind("@") + 1
                 address = (
                     value[:start].replace("%", "%%") + "%s"
                     + value[start + len(host):].replace("%", "%%")

@@ -126,6 +126,8 @@ class ZenohTopologyTest(unittest.TestCase):
             "RTSP_BASE_URL": "rtsp://user:pass@localization.target:8554/front%20left?stream=low",
             "EXTERNAL_URL": "rtsp://external.example:8554/camera",
             "TRITON_SERVER_URL": "triton-server:8001",
+            "TARGET_HOST": "localization.target",
+            "TARGET_ADDRESS": "localization.target:8001",
         }
         target = ConvertedService(
             "localization.target", "target", ChartRef("local", "1"), "target",
@@ -178,6 +180,8 @@ class ZenohTopologyTest(unittest.TestCase):
                     f'rtsp://user:pass@{target_service["metadata"]["name"]}:8554/front%20left?stream=low')
                 self.assertEqual(values["env"]["EXTERNAL_URL"], "rtsp://external.example:8554/camera")
                 self.assertEqual(values["env"]["TRITON_SERVER_URL"], "triton-server:8001")
+                self.assertEqual(values["env"]["TARGET_HOST"], target_service["metadata"]["name"])
+                self.assertEqual(values["env"]["TARGET_ADDRESS"], f'{target_service["metadata"]["name"]}:8001')
                 settings = values["rmw"]["zenoh"]["configOverrides"]
                 endpoints = settings["connect/endpoints"]
                 self.assertEqual(endpoints, [

@@ -481,6 +481,21 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
 
         self.assertEqual(list(environment), ["USE_SIM_TIME", "HOST", "PORT"])
 
+    def test_environment_keeps_chart_default_service_hosts(self) -> None:
+        self.converter.raw_services = {"bridge": {}, "carla-server": {}, "triton-server": {}}
+        resolved = {"environment": {
+            "CARLA_HOST": "carla-server",
+            "TRITON_SERVER_URL": "triton-server:8001",
+            "LOG_LEVEL": "info",
+        }}
+        defaults = {"env": resolved["environment"]}
+
+        environment = self.converter._environment("bridge", resolved, defaults)
+
+        self.assertEqual(environment, {
+            "CARLA_HOST": "carla-server", "TRITON_SERVER_URL": "triton-server:8001",
+        })
+
     def test_chart_defaults_include_bundled_base_and_service_overrides(self) -> None:
         base_values = {
             "env": {
