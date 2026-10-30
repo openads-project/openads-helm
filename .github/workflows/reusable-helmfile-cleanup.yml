@@ -1,0 +1,27 @@
+name: helmfile-cleanup
+
+on:
+  workflow_call:
+
+jobs:
+  ghcr-cleanup:
+    name: Cleanup helmfile
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Cleanup ${{ github.event.repository.name }}/helmfile
+        uses: dataaxiom/ghcr-cleanup-action@v1.2.2
+        with:
+          packages: ${{ github.event.repository.name }}/helmfile
+          dry-run: false
+          use-regex: true
+          skip-regex-checks: true
+          older-than: 1 month
+          exclude-tags: '^(v[0-9]+\.[0-9]+\.[0-9]+|main)$' # v1.2.3, main
+          delete-tags: ".*"
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
+          delete-orphaned-images: true
+          validate: true

@@ -47,17 +47,11 @@ on:
         type: boolean
         default: false
       artifact-name:
-        description: Actions artifact and archive name prefix.
+        description: Archive name prefix inside the OCI artifact.
         required: false
         type: string
         default: helmfile
     outputs:
-      artifact-name:
-        description: Name of the seven-day Actions artifact.
-        value: ${{ jobs.generate.outputs.artifact-name }}
-      artifact-digest:
-        description: SHA-256 digest reported by upload-artifact.
-        value: ${{ jobs.generate.outputs.artifact-digest }}
       archive-name:
         description: Filename of the generated tarball.
         value: ${{ jobs.generate.outputs.archive-name }}
@@ -71,7 +65,7 @@ on:
         description: Caller-relative directory represented by the archive contents.
         value: ${{ jobs.generate.outputs.bundle-dir }}
       oci-reference:
-        description: OCI repository receiving default-branch and version-tag builds.
+        description: OCI repository receiving every build, tagged with the ref slug and sha-<commit>.
         value: ${{ jobs.generate.outputs.oci-reference }}
 
 permissions:
@@ -83,8 +77,6 @@ jobs:
     name: Build and validate
     runs-on: ubuntu-latest
     outputs:
-      artifact-name: ${{ inputs.artifact-name }}
-      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
       archive-name: ${{ steps.archive.outputs.archive-name }}
       helmfile-entrypoint: ${{ steps.bundle.outputs.helmfile-entrypoint }}
       bundle-dir: ${{ steps.bundle.outputs.bundle-dir }}
@@ -198,61 +190,32 @@ jobs:
             --file - \
             . | gzip --no-name > "$archive_path"
           sha256sum "$archive_path"
-          {
-            echo "archive-name=$archive_name"
-            echo "archive-path=$archive_path"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload workflow artifact
-        id: upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.artifact-name }}
-          path: ${{ steps.archive.outputs.archive-path }}
-          if-no-files-found: error
-          overwrite: true
-          retention-days: 7
+          echo "archive-name=$archive_name" >> "$GITHUB_OUTPUT"
 
       - name: Determine OCI publication
         id: publication
         shell: bash
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
-          repository="ghcr.io/${GITHUB_REPOSITORY,,}/helmfile"
-          publish=false
-          tags=()
-          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
-            publish=true
-            tags+=("${DEFAULT_BRANCH//\//-}" "sha-${GITHUB_SHA}")
-          elif [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/tags/$GITHUB_REF_NAME" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            publish=true
-            tags+=("$GITHUB_REF_NAME" "sha-${GITHUB_SHA}")
-          fi
           {
-            echo "oci-reference=$repository"
-            echo "publish=$publish"
-            echo "tags<<EOF"
-            printf '%s\n' "${tags[@]}"
-            echo "EOF"
+            echo "oci-reference=ghcr.io/${GITHUB_REPOSITORY,,}/helmfile"
+            echo "tags=${REF_NAME//[^a-zA-Z0-9._-]/-},sha-${GITHUB_SHA}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up ORAS
-        if: steps.publication.outputs.publish == 'true'
         uses: oras-project/setup-oras@v2.0.1
         with:
           version: 1.3.4
 
       - name: Log in to GHCR
-        if: steps.publication.outputs.publish == 'true'
         shell: bash
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GHCR_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
 
       - name: Publish OCI artifact
-        if: steps.publication.outputs.publish == 'true'
         shell: bash
         working-directory: ${{ runner.temp }}
         env:
@@ -261,14 +224,9 @@ jobs:
           OCI_TAGS: ${{ steps.publication.outputs.tags }}
         run: |
           set -euo pipefail
-          tag_list=""
-          while IFS= read -r tag; do
-            [[ -n "$tag" ]] || continue
-            tag_list="${tag_list:+${tag_list},}${tag}"
-          done <<< "$OCI_TAGS"
           oras push \
             --artifact-type application/vnd.openads.helmfile.v1 \
             --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
-            "${OCI_REFERENCE}:${tag_list}" \
+            "${OCI_REFERENCE}:${OCI_TAGS}" \
             "${ARCHIVE_NAME}:application/vnd.openads.helmfile.layer.v1.tar+gzip"
