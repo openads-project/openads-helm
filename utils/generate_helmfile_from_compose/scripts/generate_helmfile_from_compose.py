@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import textwrap
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -44,7 +45,8 @@ DEFAULT_ENV_VARS = {
 
 IGNORED_VOLUME_TARGETS = {"/etc/localtime", "/etc/timezone", "/dev/null"}
 
-# Generated values target charts built on the openadservice base chart.
+# Generated values target the openadservice base chart. Charts built on it
+# nest these values under this key.
 VALUES_ROOT = "openadservice"
 # Images tagged latest (or latest-slim, latest-dev, ...) are default-branch
 # builds. Their chart is the newest <X.Y.Z>-main version in the registry.
@@ -97,6 +99,12 @@ class ChartRef:
     url: str
     version: str
 
+    @property
+    def values_root(self) -> str | None:
+        """Key of the openadservice values; None for the base chart itself."""
+        # OCI chart references end with the chart name.
+        return None if self.url.rsplit("/", 1)[-1] == VALUES_ROOT else VALUES_ROOT
+
 
 @dataclass
 class ConvertedService:
@@ -108,6 +116,8 @@ class ConvertedService:
     values_dir: str
     profiles: tuple[str, ...] = ()
     values: dict[str, Any] = field(default_factory=dict)
+    # Chart map values beside the openadservice values.
+    parent_values: dict[str, Any] = field(default_factory=dict)
     param_source: Path | None = None
     param_filename: str | None = None
     ros_params: dict[str, Any] = field(default_factory=dict)
@@ -767,10 +777,10 @@ class ComposeToHelmfileConverter:
             raise ConversionError(
                 f"cannot read chart {chart.url} {chart.version}: {exc}"
             ) from exc
-        defaults = values.get(VALUES_ROOT)
+        defaults = values if chart.values_root is None else values.get(chart.values_root)
         if not isinstance(defaults, dict):
             raise ConversionError(
-                f"chart {chart.url} {chart.version} has no mapping at values_root"
+                f"chart {chart.url} {chart.version} is not based on {VALUES_ROOT}"
             )
         return defaults
 
@@ -1320,10 +1330,21 @@ class ComposeToHelmfileConverter:
             raise ConversionError(
                 f"{service_name}: ros_params require a mounted ROS parameter file"
             )
-        value_overrides = mapping.get("values", {})
-        if value_overrides:
+        release_values = mapping.get("values") or {}
+        if not isinstance(release_values, dict):
+            raise ConversionError(f"{service_name}: chart values must be a mapping")
+        # Chart map values are the release values. The converted values are the
+        # openadservice values, which charts built on it nest under the root.
+        parent_values = dict(release_values)
+        if chart.values_root is None:
+            value_overrides, parent_values = parent_values, {}
+        else:
+            value_overrides = parent_values.pop(chart.values_root, None) or {}
             if not isinstance(value_overrides, dict):
-                raise ConversionError(f"{service_name}: chart values must be a mapping")
+                raise ConversionError(
+                    f"{service_name}: chart values {chart.values_root} must be a mapping"
+                )
+        if value_overrides:
             converted_volumes = values.get("volumes", [])
             values = self._merge_values(values, value_overrides)
             if "volumes" in value_overrides:
@@ -1367,6 +1388,7 @@ class ComposeToHelmfileConverter:
             values_dir=values_dir,
             profiles=profiles,
             values=values,
+            parent_values=parent_values,
             param_source=param_source,
             param_filename=param_filename,
             ros_params=ros_params,
@@ -1410,6 +1432,9 @@ class ComposeToHelmfileConverter:
     def _render_values(self, service: ConvertedService) -> str:
         values = copy.deepcopy(service.values)
         replacements: dict[str, str] = {}
+        root = service.chart.values_root
+        # Indentation of the openadservice values in the values file.
+        indent = 2 if root else 0
 
         def template_value(expression: str, quote: bool = True) -> str:
             marker = f"__HELMFILE_GOTMPL_{len(replacements)}__"
@@ -1464,13 +1489,14 @@ class ComposeToHelmfileConverter:
             return value
 
         values = template_host_values(values)
+        parent_values = template_host_values(copy.deepcopy(service.parent_values))
 
         if service.param_source and service.param_filename:
             filename = service.param_filename
             values["rosParamFileData"] = template_value(
-                f"readFile {self._go_string(filename)} | indent 4", quote=False
+                f"readFile {self._go_string(filename)} | indent {indent + 2}", quote=False
             )
-            param_data = f'|\n{{{{ readFile {self._go_string(filename)} | indent 4 }}}}'
+            param_data = f'|\n{{{{ readFile {self._go_string(filename)} | indent {indent + 2} }}}}'
             if service.ros_params:
                 # ROS 2 applies the last matching block of a parameter file,
                 # so the appended overrides win over the copied file.
@@ -1490,7 +1516,7 @@ class ComposeToHelmfileConverter:
                     width=1000,
                 )
                 param_data += "\n" + "\n".join(
-                    "    " + line for line in overrides.splitlines()
+                    " " * (indent + 2) + line for line in overrides.splitlines()
                 )
             replacements[values["rosParamFileData"]] = param_data
 
@@ -1501,7 +1527,7 @@ class ComposeToHelmfileConverter:
             marker = template_value(f'readFile {self._go_string(filename)}', quote=False)
             volume["data"] = marker
             replacements[marker] = (
-                f'|\n{{{{ readFile {self._go_string(filename)} | indent 6 }}}}'
+                f'|\n{{{{ readFile {self._go_string(filename)} | indent {indent + 4} }}}}'
             )
 
         x11 = values.pop("x11", None)
@@ -1528,7 +1554,7 @@ class ComposeToHelmfileConverter:
             if runtime_items is not None:
                 values[key] = [
                     (
-                        template_block(self._compose_expression(item), indent=4)
+                        template_block(self._compose_expression(item), indent=indent + 2)
                         if "\n" in item
                         else template_value(self._compose_expression(item))
                     )
@@ -1539,31 +1565,31 @@ class ComposeToHelmfileConverter:
             items = values.get(key)
             if isinstance(items, list):
                 values[key] = [
-                    literal_block(item, indent=4)
+                    literal_block(item, indent=indent + 2)
                     if isinstance(item, str) and "\n" in item
                     else item
                     for item in items
                 ]
 
-        content = yaml.safe_dump(
-            {VALUES_ROOT: values},
-            allow_unicode=True,
-            sort_keys=False,
-            width=1000,
-        )
-        root_key = f"{VALUES_ROOT}:\n"
-        if content == f"{VALUES_ROOT}: {{}}\n":
-            content = root_key
+        def dump(data: dict[str, Any]) -> str:
+            return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=1000)
+
         prefix_env = self._go_string(NAME_PREFIX_ENV)
         node_env = self._go_string(NODE_ENV)
-        runtime_values = (
-            f'  namePrefix: {{{{ env {prefix_env} | quote }}}}\n'
+        pad = " " * indent
+        content = (
+            f'{pad}namePrefix: {{{{ env {prefix_env} | quote }}}}\n'
             f'{{{{- if env {node_env} }}}}\n'
-            "  nodeSelector:\n"
-            f'    kubernetes.io/hostname: {{{{ env {node_env} | quote }}}}\n'
+            f"{pad}nodeSelector:\n"
+            f'{pad}  kubernetes.io/hostname: {{{{ env {node_env} | quote }}}}\n'
             "{{- end }}\n"
         )
-        content = content.replace(root_key, root_key + runtime_values, 1)
+        if values:
+            content += textwrap.indent(dump(values), pad)
+        if root:
+            content = f"{root}:\n" + content
+        if parent_values:
+            content += dump(parent_values)
         for marker, replacement in replacements.items():
             content = content.replace(marker, replacement)
         return content
