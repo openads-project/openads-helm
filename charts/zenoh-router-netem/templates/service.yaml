@@ -1,24 +1,37 @@
 {{- $zenohRouter := index .Values "zenoh-router" }}
-{{- $service := $zenohRouter.openadservice }}
+{{- $netem := .Values.netem }}
+{{- $hasInstances := gt (len $zenohRouter.openadservice.instances) 0 }}
+{{- $instances := $zenohRouter.openadservice.instances | default (dict "" (dict)) }}
+{{- range $instanceKey, $instance := $instances }}
+{{- $service := mergeOverwrite (deepCopy $zenohRouter.openadservice) $instance }}
+{{- $baseName := include "openadservice.baseName" (dict "name" $zenohRouter.openadservice.name "releaseName" $.Release.Name "namePrefix" $zenohRouter.openadservice.namePrefix) }}
+{{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
+{{- $_ := set $service "name" $name }}
 {{- if and $service.enable (not $service.enableService) }}
-{{- if $service.ports }}
+{{- $nodePorts := list }}
+{{- range $service.ports }}
+{{- if not .hostPort }}
+{{- $nodePorts = append $nodePorts . }}
+{{- end }}
+{{- end }}
+{{- if $nodePorts }}
 apiVersion: v1
 kind: Service
-{{- $name := printf "%s-external" ($service.name | default .Release.Name) }}
+{{- $externalName := printf "%s-external" $name }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $externalName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
+    app.kubernetes.io/name: "{{ $externalName }}"
     {{- range $key, $value := $service.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 spec:
   selector:
-    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}"
+    app.kubernetes.io/name: "{{ $name }}"
   type: NodePort
   externalTrafficPolicy: Local
   ports:
-    {{- range $service.ports }}
+    {{- range $nodePorts }}
     - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
       nodePort: {{ .nodePort }}
       port: {{ .port | default .targetPort }}
@@ -27,10 +40,9 @@ spec:
     {{- end }}
 {{- end }}
 ---
-{{- if or $service.expose (and .Values.netem.enabled .Values.netem.http.enabled) }}
+{{- if or $service.expose (and $netem.enabled $netem.http.enabled) }}
 apiVersion: v1
 kind: Service
-{{- $name := $service.name | default .Release.Name }}
 metadata:
   name: "{{ $name }}"
   labels:
@@ -40,7 +52,7 @@ metadata:
     {{- end }}
 spec:
   selector:
-    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}"
+    app.kubernetes.io/name: "{{ $name }}"
   type: ClusterIP
   ports:
     {{- range $service.expose }}
@@ -49,31 +61,34 @@ spec:
       targetPort: {{ .targetPort }}
       protocol: "{{ .protocol | default "TCP" }}"
     {{- end }}
-    {{- if and .Values.netem.enabled .Values.netem.http.enabled }}
+    {{- if and $netem.enabled $netem.http.enabled }}
     - name: netem-http
-      port: {{ .Values.netem.http.port }}
-      targetPort: {{ .Values.netem.http.port }}
+      port: {{ $netem.http.port }}
+      targetPort: {{ $netem.http.port }}
       protocol: TCP
     {{- end }}
 {{- end }}
 {{- end }}
-{{- if and $service.enable .Values.netem.enabled .Values.netem.http.enabled .Values.netem.http.nodePort }}
+{{- if and $service.enable $netem.enabled $netem.http.enabled $netem.http.nodePort }}
+{{- $netemServiceName := include "openadservice.rfc1123CompliantName" (printf "%s-netem" $name) }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: "{{ $service.name | default .Release.Name }}-netem"
+  name: "{{ $netemServiceName }}"
   labels:
-    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}-netem"
+    app.kubernetes.io/name: "{{ $netemServiceName }}"
 spec:
   selector:
-    app.kubernetes.io/name: "{{ $service.name | default .Release.Name }}"
+    app.kubernetes.io/name: "{{ $name }}"
   type: NodePort
   externalTrafficPolicy: Local
   ports:
     - name: netem-http
-      port: {{ .Values.netem.http.port }}
-      targetPort: {{ .Values.netem.http.port }}
-      nodePort: {{ .Values.netem.http.nodePort }}
+      port: {{ $netem.http.port }}
+      targetPort: {{ $netem.http.port }}
+      nodePort: {{ $netem.http.nodePort }}
       protocol: TCP
+{{- end }}
+---
 {{- end }}

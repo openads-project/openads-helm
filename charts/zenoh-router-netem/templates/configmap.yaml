@@ -1,15 +1,25 @@
 {{- $zenohRouter := index .Values "zenoh-router" }}
-{{- if and $zenohRouter.openadservice.enable .Values.netem.enabled }}
+{{- $netem := .Values.netem }}
+{{- $hasInstances := gt (len $zenohRouter.openadservice.instances) 0 }}
+{{- $instances := $zenohRouter.openadservice.instances | default (dict "" (dict)) }}
+{{- range $instanceKey, $instance := $instances }}
+{{- $service := mergeOverwrite (deepCopy $zenohRouter.openadservice) $instance }}
+{{- $baseName := include "openadservice.baseName" (dict "name" $zenohRouter.openadservice.name "releaseName" $.Release.Name "namePrefix" $zenohRouter.openadservice.namePrefix) }}
+{{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
+{{- $_ := set $service "name" $name }}
+{{- if and $service.enable $netem.enabled }}
 apiVersion: v1
 kind: ConfigMap
-{{- $name := include "openadservice.rfc1123CompliantName" (printf "%s-netem" ($zenohRouter.openadservice.name | default .Release.Name)) }}
+{{- $netemConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-netem" $name) }}
 metadata:
-  name: "{{ $name }}"
+  name: "{{ $netemConfigMapName }}"
   labels:
-    app.kubernetes.io/name: "{{ $name }}"
-    {{- range $key, $value := $zenohRouter.openadservice.labels }}
+    app.kubernetes.io/name: "{{ $netemConfigMapName }}"
+    {{- range $key, $value := $service.labels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-{{ (.Files.Glob "files/netem/*").AsConfig | indent 2 }}
+{{ ($.Files.Glob "files/netem/*").AsConfig | indent 2 }}
+{{- end }}
+---
 {{- end }}
