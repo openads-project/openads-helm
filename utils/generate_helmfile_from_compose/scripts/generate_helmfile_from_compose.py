@@ -60,6 +60,7 @@ HELPERS_TEMPLATE = "templates/_helpers.tpl"
 CHART_MAP_KEYS = {"excluded_profiles", "services"}
 SERVICE_MAPPING_KEYS = {
     "chart", "version", "values", "ros_params", "port_policies", "volume_policies",
+    "inherit_defaults",
 }
 # Environment variables read when Helmfile runs.
 # Prefix for release and resource names, so several stacks share a namespace.
@@ -178,7 +179,16 @@ class ComposeToHelmfileConverter:
         if not isinstance(self.service_mappings, dict):
             raise ConversionError("services must be a mapping")
         self.port_policies: dict[str, dict[int, str]] = {}
-        for name, mapping in self.service_mappings.items():
+        for name in ["_defaults", *(name for name in self.service_mappings if name != "_defaults")]:
+            mapping = self.service_mappings.get(name, {})
+            if not isinstance(mapping, dict):
+                raise ConversionError(f"{name}: service mapping must be a mapping")
+            if "inherit_defaults" in mapping:
+                if name == "_defaults":
+                    raise ConversionError("_defaults: inherit_defaults is only supported on services")
+                if not isinstance(mapping["inherit_defaults"], bool):
+                    raise ConversionError(f"{name}: inherit_defaults must be a boolean")
+            mapping = self._service_mapping(name)
             if (
                 not isinstance(mapping, dict)
                 or bool(mapping.get("chart")) != bool(mapping.get("version"))
@@ -193,6 +203,8 @@ class ComposeToHelmfileConverter:
                 )
             if not isinstance(mapping.get("ros_params", {}), dict):
                 raise ConversionError(f"{name}: ros_params must be a mapping")
+            if not isinstance(mapping.get("values", {}), dict):
+                raise ConversionError(f"{name}: chart values must be a mapping")
             mounts = mapping.get("volume_policies", {})
             if not isinstance(mounts, dict) or any(
                 not isinstance(target, str) or not target.startswith("/")
@@ -240,8 +252,15 @@ class ComposeToHelmfileConverter:
         self.jinja_env.filters["yaml_scalar"] = self._yaml_scalar
         self.jinja_env.filters["go_string"] = self._go_string
 
+    def _service_mapping(self, service_name: str) -> dict[str, Any]:
+        mapping = self.service_mappings.get(service_name, {})
+        return self._merge_values(
+            self.service_mappings.get("_defaults", {}) if mapping.get("inherit_defaults", True) else {},
+            mapping,
+        )
+
     def _volume_policy(self, service_name: str, target: str) -> str | None:
-        return self.service_mappings.get(service_name, {}).get("volume_policies", {}).get(target)
+        return self._service_mapping(service_name).get("volume_policies", {}).get(target)
 
     @staticmethod
     def _merge_values(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -565,10 +584,22 @@ class ComposeToHelmfileConverter:
         return data
 
     def _chart_ref(self, service_name: str, image: str) -> ChartRef:
-        mapping = self.service_mappings.get(service_name)
+        mapping = self._service_mapping(service_name)
         if mapping and mapping.get("chart"):
             return ChartRef(
                 mapping["chart"], str(mapping["version"]),
+            )
+        gitlab_match = re.fullmatch(
+            r"(?P<registry>(?:registry\.)?gitlab\.[^/:]+(?::\d+)?)/"
+            r"(?P<repository>[^:@]+):(?P<tag>[^@]+)(?:@.+)?",
+            image,
+        )
+        if gitlab_match:
+            registry, repository, tag = gitlab_match.group("registry", "repository", "tag")
+            chart_name = self._sanitize_name(repository.rsplit("/", 1)[-1])
+            return ChartRef(
+                url=f"oci://{registry}/{repository}/helm/{chart_name}",
+                version=tag.removeprefix("v"),
             )
         match = re.fullmatch(
             r"ghcr\.io/(?P<owner>[^/]+)/(?P<repository>[^:@]+):"
@@ -884,7 +915,9 @@ class ComposeToHelmfileConverter:
             expose.append(entry.copy())
             if item.get("published") is not None:
                 published = int(item["published"])
-                mode = self.port_policies.get(service_name, {}).get(published, "hostPort")
+                mode = self.port_policies.get(
+                    service_name, self.port_policies.get("_defaults", {})
+                ).get(published, "hostPort")
                 entry[mode] = published
                 ports.append(entry)
         for item in service.get("expose", []):
@@ -1533,7 +1566,7 @@ class ComposeToHelmfileConverter:
         if depends_on:
             values["dependsOn"] = depends_on
 
-        mapping = self.service_mappings.get(service_name, {})
+        mapping = self._service_mapping(service_name)
         ros_params = mapping.get("ros_params", {})
         if ros_params and not (param_source and param_filename):
             raise ConversionError(
@@ -1542,7 +1575,7 @@ class ComposeToHelmfileConverter:
         release_values = mapping.get("values") or {}
         if not isinstance(release_values, dict):
             raise ConversionError(f"{service_name}: chart values must be a mapping")
-        # Chart map values are the release values. The converted values are the
+        # chart map values are the release values. The converted values are the
         # openadservice values, which charts built on it nest under the root.
         parent_values = dict(release_values)
         if chart.values_root is None:
