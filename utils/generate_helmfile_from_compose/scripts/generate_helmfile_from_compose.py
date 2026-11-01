@@ -14,11 +14,13 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import textwrap
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Callable
 
 import jinja2
 import yaml
@@ -37,14 +39,14 @@ DEFAULT_ENV_VARS = {
     "__NV_PRIME_RENDER_OFFLOAD",
     "__GLX_VENDOR_LIBRARY_NAME",
     "XAUTHORITY",
-    # The openadservice chart renders this from rmw.zenoh, including the
-    # prefixed router endpoint. Compose's fixed endpoint must not override it.
+    # handled separately after Compose interpolation and service-name mapping
     "ZENOH_CONFIG_OVERRIDE",
 }
 
 IGNORED_VOLUME_TARGETS = {"/etc/localtime", "/etc/timezone", "/dev/null"}
 
-# Generated values target charts built on the openadservice base chart.
+# Generated values target the openadservice base chart. Charts built on it
+# nest these values under this key.
 VALUES_ROOT = "openadservice"
 # Images tagged latest (or latest-slim, latest-dev, ...) are default-branch
 # builds. Their chart is the newest <X.Y.Z>-main version in the registry.
@@ -53,9 +55,12 @@ MAIN_CHART_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)-main")
 # Mounted YAML files containing this key become the chart's ROS parameter file.
 ROS_PARAM_FILE_MARKER = "ros__parameters"
 ROS_PARAM_FILE_NAME = "params.yml"
+HELPERS_TEMPLATE = "templates/_helpers.tpl"
 
-CHART_MAP_KEYS = {"excluded_profiles", "volume_policies", "services"}
-SERVICE_MAPPING_KEYS = {"chart", "version", "values", "ros_params"}
+CHART_MAP_KEYS = {"excluded_profiles", "services"}
+SERVICE_MAPPING_KEYS = {
+    "chart", "version", "values", "ros_params", "port_policies", "volume_policies",
+}
 # Environment variables read when Helmfile runs.
 # Prefix for release and resource names, so several stacks share a namespace.
 NAME_PREFIX_ENV = "DEPLOYMENT_PREFIX"
@@ -67,6 +72,10 @@ HOST_PATH_ROOT_ENV = "PROJECT_PATH"
 
 class ConversionError(RuntimeError):
     """Raised when conversion cannot produce a complete output."""
+
+    def __init__(self, message: str, *, reported: bool = False) -> None:
+        super().__init__(message)
+        self.reported = reported
 
 
 class ChartUnavailableError(ConversionError):
@@ -95,6 +104,12 @@ class ChartRef:
     url: str
     version: str
 
+    @property
+    def values_root(self) -> str | None:
+        """Key of the openadservice values; None for the base chart itself."""
+        # OCI chart references end with the chart name.
+        return None if self.url.rsplit("/", 1)[-1] == VALUES_ROOT else VALUES_ROOT
+
 
 @dataclass
 class ConvertedService:
@@ -106,6 +121,8 @@ class ConvertedService:
     values_dir: str
     profiles: tuple[str, ...] = ()
     values: dict[str, Any] = field(default_factory=dict)
+    # Chart map values beside the openadservice values.
+    parent_values: dict[str, Any] = field(default_factory=dict)
     param_source: Path | None = None
     param_filename: str | None = None
     ros_params: dict[str, Any] = field(default_factory=dict)
@@ -115,6 +132,7 @@ class ConvertedService:
     runtime_environment: dict[str, str] = field(default_factory=dict)
     runtime_command: list[str] | None = None
     runtime_args: list[str] | None = None
+    uses_name_helper: bool = False
 
 
 class ComposeToHelmfileConverter:
@@ -140,6 +158,7 @@ class ComposeToHelmfileConverter:
         self.chart_values_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self.registry_tags_cache: dict[str, list[str]] = {}
         self.raw_services: dict[str, dict[str, Any]] = {}
+        self.resolved_services: dict[str, dict[str, Any]] = {}
         self.raw_service_sources: dict[str, Path] = {}
         self.source_service_counts: dict[Path, int] = {}
         self.chart_map: dict[str, Any] = {}
@@ -158,6 +177,7 @@ class ComposeToHelmfileConverter:
         self.service_mappings = self.chart_map.get("services", {})
         if not isinstance(self.service_mappings, dict):
             raise ConversionError("services must be a mapping")
+        self.port_policies: dict[str, dict[int, str]] = {}
         for name, mapping in self.service_mappings.items():
             if (
                 not isinstance(mapping, dict)
@@ -173,6 +193,35 @@ class ComposeToHelmfileConverter:
                 )
             if not isinstance(mapping.get("ros_params", {}), dict):
                 raise ConversionError(f"{name}: ros_params must be a mapping")
+            mounts = mapping.get("volume_policies", {})
+            if not isinstance(mounts, dict) or any(
+                not isinstance(target, str) or not target.startswith("/")
+                or mode not in ("copy", "bind")
+                for target, mode in mounts.items()
+            ):
+                raise ConversionError(
+                    f"{name}: volume_policies must map absolute mount paths "
+                    "to copy or bind"
+                )
+            policies = mapping.get("port_policies", {})
+            if not isinstance(policies, dict):
+                raise ConversionError(f"{name}: port_policies must be a mapping")
+            self.port_policies[name] = {}
+            for port, mode in policies.items():
+                if (
+                    isinstance(port, bool)
+                    or not isinstance(port, (int, str))
+                    or not str(port).isdigit()
+                    or not 1 <= int(port) <= 65535
+                    or mode not in ("hostPort", "nodePort")
+                ):
+                    raise ConversionError(
+                        f"{name}: port_policies must map published ports (1-65535) "
+                        "to hostPort or nodePort"
+                    )
+                if int(port) in self.port_policies[name]:
+                    raise ConversionError(f"{name}: duplicate port policy for {port}")
+                self.port_policies[name][int(port)] = mode
         excluded_profiles = self.chart_map.get("excluded_profiles", [])
         if (
             not isinstance(excluded_profiles, list)
@@ -180,19 +229,6 @@ class ComposeToHelmfileConverter:
         ):
             raise ConversionError("excluded_profiles must be a list of profile names")
         self.excluded_profiles = frozenset(excluded_profiles)
-        volume_policies = self.chart_map.get("volume_policies", {})
-        if not isinstance(volume_policies, dict):
-            raise ConversionError("volume_policies must be a mapping")
-        for service_name, mounts in volume_policies.items():
-            if not isinstance(mounts, dict) or any(
-                not isinstance(target, str) or not target.startswith("/")
-                or mode not in {"copy", "bind"}
-                for target, mode in mounts.items()
-            ):
-                raise ConversionError(
-                    f"{service_name}: volume_policies must map absolute mount paths "
-                    "to copy or bind"
-                )
 
         template_dir = Path(__file__).resolve().parent.parent / "templates"
         self.jinja_env = jinja2.Environment(
@@ -205,7 +241,7 @@ class ComposeToHelmfileConverter:
         self.jinja_env.filters["go_string"] = self._go_string
 
     def _volume_policy(self, service_name: str, target: str) -> str | None:
-        return self.chart_map.get("volume_policies", {}).get(service_name, {}).get(target)
+        return self.service_mappings.get(service_name, {}).get("volume_policies", {}).get(target)
 
     @staticmethod
     def _merge_values(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -748,10 +784,10 @@ class ComposeToHelmfileConverter:
             raise ConversionError(
                 f"cannot read chart {chart.url} {chart.version}: {exc}"
             ) from exc
-        defaults = values.get(VALUES_ROOT)
+        defaults = values if chart.values_root is None else values.get(chart.values_root)
         if not isinstance(defaults, dict):
             raise ConversionError(
-                f"chart {chart.url} {chart.version} has no mapping at values_root"
+                f"chart {chart.url} {chart.version} is not based on {VALUES_ROOT}"
             )
         return defaults
 
@@ -818,6 +854,7 @@ class ComposeToHelmfileConverter:
             value = self._coerce_scalar(raw_environment[key])
             default_value = self._coerce_scalar(chart_environment.get(key))
             source_value = source_environment.get(key)
+            service_host = self._service_host(value)
             if (
                 key in chart_environment
                 and value == default_value
@@ -825,14 +862,15 @@ class ComposeToHelmfileConverter:
                     isinstance(source_value, str)
                     and self._contains_host_expression(source_value)
                 )
+                # kept for the deployment prefix applied by _translate_service_urls
+                and not (service_host and service_host[1] in self.raw_services)
             ):
                 continue
             result[key] = value
         return result
 
-    @staticmethod
     def _ports(
-        service: dict[str, Any],
+        self, service: dict[str, Any], service_name: str = "",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         ports: list[dict[str, Any]] = []
         expose: list[dict[str, Any]] = []
@@ -843,10 +881,11 @@ class ComposeToHelmfileConverter:
                 "targetPort": int(item["target"]),
                 "protocol": str(item.get("protocol", "tcp")).upper(),
             }
-            if item.get("published") is None:
-                expose.append(entry)
-            else:
-                entry["nodePort"] = int(item["published"])
+            expose.append(entry.copy())
+            if item.get("published") is not None:
+                published = int(item["published"])
+                mode = self.port_policies.get(service_name, {}).get(published, "hostPort")
+                entry[mode] = published
                 ports.append(entry)
         for item in service.get("expose", []):
             if isinstance(item, int):
@@ -861,17 +900,197 @@ class ComposeToHelmfileConverter:
                 )
         ports.sort(
             key=lambda item: (
-                item["nodePort"],
+                item.get("hostPort", item.get("nodePort", 0)),
                 item["targetPort"],
                 item["protocol"],
             )
         )
+        expose = list({(item["targetPort"], item["protocol"]): item for item in expose}.values())
         expose.sort(key=lambda item: (item["targetPort"], item["protocol"]))
         return ports, expose
 
     @staticmethod
+    def _zenoh_settings(override: str) -> list[tuple[str, str]]:
+        """Split overrides without splitting semicolons inside JSON strings."""
+        settings: list[tuple[str, str]] = []
+        start = 0
+        quoted = escaped = False
+        for index, char in enumerate(override + ";"):
+            if escaped:
+                escaped = False
+            elif quoted and char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = not quoted
+            elif char == ";" and not quoted:
+                setting = override[start:index].strip()
+                start = index + 1
+                if setting:
+                    key, separator, value = setting.partition("=")
+                    if not separator:
+                        raise ConversionError(f"invalid Zenoh override: {setting}")
+                    settings.append((key.strip(), value.strip()))
+        if quoted:
+            raise ConversionError("unterminated string in Zenoh override")
+        return settings
+
+    def _zenoh_config(self, override: str) -> dict[str, Any]:
+        settings: dict[str, Any] = {}
+        for key, value in self._zenoh_settings(override):
+            try:
+                settings[key] = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ConversionError(f"Zenoh override {key} must use a JSON value") from exc
+        return settings
+
+    @staticmethod
+    def _map_zenoh_endpoints(value: Any, transform: Callable[[str], str]) -> Any:
+        if isinstance(value, str):
+            return transform(value)
+        if isinstance(value, list):
+            return [
+                ComposeToHelmfileConverter._map_zenoh_endpoints(item, transform)
+                for item in value
+            ]
+        if isinstance(value, dict):
+            return {
+                key: ComposeToHelmfileConverter._map_zenoh_endpoints(item, transform)
+                for key, item in value.items()
+            }
+        raise ConversionError("Zenoh endpoints must contain strings, lists or mappings")
+
+    @staticmethod
+    def _zenoh_network_endpoint(endpoint: str) -> re.Match[str] | None:
+        return re.fullmatch(
+            r"(?P<transport>tcp|udp|tls|quic|ws|wss)/"
+            r"(?P<host>\[[^\]]+\]|[^:/?#]+):(?P<port>\d+)(?P<options>.*)",
+            endpoint,
+        )
+
+    def _zenoh_listener_ports(self, settings: dict[str, Any]) -> list[dict[str, Any]]:
+        if "listen/endpoints" not in settings:
+            return []
+        endpoints = settings["listen/endpoints"]
+        if isinstance(endpoints, dict):
+            mode = settings.get("mode", "client")
+            endpoints = endpoints.get(mode, [])
+        ports: list[dict[str, Any]] = []
+
+        def collect(endpoint: str) -> str:
+            match = self._zenoh_network_endpoint(endpoint)
+            if match and match["host"] not in {"localhost", "127.0.0.1", "[::1]"}:
+                port = int(match["port"])
+                if port:
+                    entry = {
+                        "targetPort": port,
+                        "protocol": "UDP" if match["transport"] in {"udp", "quic"} else "TCP",
+                    }
+                    if entry not in ports:
+                        ports.append(entry)
+            return endpoint
+
+        self._map_zenoh_endpoints(endpoints, collect)
+        return ports
+
+    def _translate_zenoh_topology(
+        self, services: list[ConvertedService],
+    ) -> list[tuple[str, str, str, str]]:
+        """Translate Compose DNS names after all generated resource names are known."""
+        targets = {service.name: service for service in services}
+        statuses: list[tuple[str, str, str, str]] = []
+        for service in services:
+            settings = service.values.get("rmw", {}).get("zenoh", {}).get("configOverrides", {})
+            if "connect/endpoints" not in settings:
+                continue
+            external: set[str] = set()
+
+            def translate(endpoint: str) -> str:
+                match = self._zenoh_network_endpoint(endpoint)
+                if not match:
+                    return endpoint
+                target = targets.get(match["host"])
+                if target is None:
+                    if match["host"] not in {"localhost", "127.0.0.1", "[::1]"}:
+                        external.add(endpoint)
+                    return endpoint
+                defaults = self._chart_defaults(target.chart)
+                effective = self._merge_values(defaults, target.values)
+                if effective.get("instances"):
+                    raise ConversionError(
+                        f"{service.name}: Zenoh target {target.name} uses chart instances; "
+                        "a single Compose endpoint cannot identify an instance"
+                    )
+                name = str(effective.get("name") or target.release_name)
+                service.uses_name_helper = True
+                # endpoint options can contain literal percent signs
+                suffix = f':{match["port"]}{match["options"]}'.replace("%", "%%")
+                address = f'{match["transport"]}/%s{suffix}'
+                return (
+                    "{{ printf " + self._go_string(address)
+                    + ' (tpl $prefixedName (list (env "DEPLOYMENT_PREFIX") '
+                    + self._go_string(name) + ")) | quote }}"
+                )
+
+            settings["connect/endpoints"] = self._map_zenoh_endpoints(
+                settings["connect/endpoints"], translate,
+            )
+            for endpoint in sorted(external):
+                statuses.append((
+                    "⚠", service.name, service.values_dir,
+                    f"Zenoh endpoint outside generated services left unchanged: {endpoint}",
+                ))
+        return statuses
+
+    @staticmethod
+    def _service_host(value: Any) -> tuple[int, str] | None:
+        """Locate the host in a URL or a bare host[:port] value."""
+        if not isinstance(value, str):
+            return None
+        match = re.fullmatch(r"(?P<host>[A-Za-z0-9][A-Za-z0-9._-]*)(?::\d+)?", value)
+        if match:
+            return 0, match["host"]
+        try:
+            url = urllib.parse.urlsplit(value)
+            host = url.hostname
+        except ValueError:
+            return None
+        if not url.scheme or not url.netloc or not host:
+            return None
+        return value.index("://") + 3 + url.netloc.rfind("@") + 1, host
+
+    def _translate_service_urls(self, services: list[ConvertedService]) -> None:
+        """Translate literal hosts that reference generated Compose services."""
+        targets = {service.name: service for service in services}
+        for service in services:
+            for key, value in service.values.get("env", {}).items():
+                if key in service.runtime_environment:
+                    continue
+                reference = self._service_host(value)
+                if reference is None or reference[1] not in targets:
+                    continue
+                start, host = reference
+                target = targets[host]
+                effective = self._merge_values(self._chart_defaults(target.chart), target.values)
+                if effective.get("instances"):
+                    raise ConversionError(
+                        f"{service.name}: URL target {target.name} uses chart instances; "
+                        "a single Compose hostname cannot identify an instance"
+                    )
+                name = str(effective.get("name") or target.release_name)
+                address = (
+                    value[:start].replace("%", "%%") + "%s"
+                    + value[start + len(host):].replace("%", "%%")
+                )
+                service.values["env"][key] = (
+                    "{{ printf " + self._go_string(address)
+                    + ' (tpl $prefixedName (list (env "DEPLOYMENT_PREFIX") '
+                    + self._go_string(name) + ")) | quote }}"
+                )
+                service.uses_name_helper = True
+
+    @staticmethod
     def _normalize_port_values(
-        value: Any, node_port: bool
+        value: Any, published_port: bool
     ) -> list[dict[str, Any]]:
         if not isinstance(value, list):
             return []
@@ -883,13 +1102,17 @@ class ComposeToHelmfileConverter:
                 "targetPort": int(item["targetPort"]),
                 "protocol": str(item.get("protocol", "TCP")).upper(),
             }
-            if node_port and item.get("nodePort") is not None:
-                entry["nodePort"] = int(item["nodePort"])
+            if item.get("port") is not None and int(item["port"]) != entry["targetPort"]:
+                entry["port"] = int(item["port"])
+            if published_port:
+                for key in ("hostPort", "nodePort"):
+                    if item.get(key) is not None:
+                        entry[key] = int(item[key])
             normalized.append(entry)
         return sorted(
             normalized,
             key=lambda item: (
-                item.get("nodePort", 0),
+                item.get("hostPort", item.get("nodePort", 0)),
                 item["targetPort"],
                 item["protocol"],
             ),
@@ -912,12 +1135,12 @@ class ComposeToHelmfileConverter:
 
         checks: list[dict[str, Any]] = []
         for name in sorted(set(names)):
-            dependency = self.raw_services.get(name, {})
+            dependency = self.resolved_services.get(name, self.raw_services.get(name, {}))
             image = str(dependency.get("image", ""))
             defaults = self._chart_defaults(self._chart_ref(name, image))
-            _, compose_expose = self._ports(dependency)
+            _, compose_expose = self._ports(dependency, name)
             chart_expose = self._normalize_port_values(
-                defaults.get("expose"), node_port=False
+                defaults.get("expose"), published_port=False
             )
             exposed = compose_expose or chart_expose
             tcp_ports = [
@@ -926,7 +1149,7 @@ class ComposeToHelmfileConverter:
                 if port.get("protocol", "TCP").upper() == "TCP"
             ]
             if tcp_ports:
-                checks.append({"host": self._sanitize_name(name), "port": min(tcp_ports)})
+                checks.append({"host": self._release_name(name), "port": min(tcp_ports)})
         return checks
 
     @staticmethod
@@ -1265,6 +1488,15 @@ class ComposeToHelmfileConverter:
         environment = self._environment(
             service_name, service, defaults, ignored_keys=set()
         )
+        zenoh_override = service.get("environment", {}).get("ZENOH_CONFIG_OVERRIDE")
+        zenoh_settings: dict[str, Any] = {}
+        if zenoh_override is not None:
+            if not isinstance(zenoh_override, str):
+                raise ConversionError(f"{service_name}: ZENOH_CONFIG_OVERRIDE must be a string")
+            zenoh_settings = self._zenoh_config(zenoh_override)
+            values["rmw"] = {"zenoh": {"configOverrides": zenoh_settings}}
+            if defaults.get("env", {}).get("ZENOH_CONFIG_OVERRIDE"):
+                environment["ZENOH_CONFIG_OVERRIDE"] = None
         if environment:
             values["env"] = environment
         if volumes:
@@ -1278,13 +1510,22 @@ class ComposeToHelmfileConverter:
             if param_mount_path != defaults.get("rosParamFileMountPath"):
                 values["rosParamFileMountPath"] = param_mount_path
 
-        ports, expose = self._ports(service)
+        ports, expose = self._ports(service, service_name)
+        listeners = self._zenoh_listener_ports(zenoh_settings) if zenoh_override else []
+        if expose or listeners:
+            exposed_ports = {}
+            for item in [*(defaults.get("expose") or []), *expose, *listeners]:
+                key = (item.get("port", item["targetPort"]), item.get("protocol", "TCP").upper())
+                exposed_ports[key] = copy.deepcopy(item)
+            expose = list(exposed_ports.values())
         if ports and ports != self._normalize_port_values(
-            defaults.get("ports"), node_port=True
+            defaults.get("ports"), published_port=True
         ):
             values["ports"] = ports
-        if expose and expose != self._normalize_port_values(
-            defaults.get("expose"), node_port=False
+        if expose and self._normalize_port_values(
+            expose, published_port=False
+        ) != self._normalize_port_values(
+            defaults.get("expose"), published_port=False
         ):
             values["expose"] = expose
 
@@ -1298,10 +1539,21 @@ class ComposeToHelmfileConverter:
             raise ConversionError(
                 f"{service_name}: ros_params require a mounted ROS parameter file"
             )
-        value_overrides = mapping.get("values", {})
-        if value_overrides:
+        release_values = mapping.get("values") or {}
+        if not isinstance(release_values, dict):
+            raise ConversionError(f"{service_name}: chart values must be a mapping")
+        # Chart map values are the release values. The converted values are the
+        # openadservice values, which charts built on it nest under the root.
+        parent_values = dict(release_values)
+        if chart.values_root is None:
+            value_overrides, parent_values = parent_values, {}
+        else:
+            value_overrides = parent_values.pop(chart.values_root, None) or {}
             if not isinstance(value_overrides, dict):
-                raise ConversionError(f"{service_name}: chart values must be a mapping")
+                raise ConversionError(
+                    f"{service_name}: chart values {chart.values_root} must be a mapping"
+                )
+        if value_overrides:
             converted_volumes = values.get("volumes", [])
             values = self._merge_values(values, value_overrides)
             if "volumes" in value_overrides:
@@ -1345,6 +1597,7 @@ class ComposeToHelmfileConverter:
             values_dir=values_dir,
             profiles=profiles,
             values=values,
+            parent_values=parent_values,
             param_source=param_source,
             param_filename=param_filename,
             ros_params=ros_params,
@@ -1388,6 +1641,9 @@ class ComposeToHelmfileConverter:
     def _render_values(self, service: ConvertedService) -> str:
         values = copy.deepcopy(service.values)
         replacements: dict[str, str] = {}
+        root = service.chart.values_root
+        # Indentation of the openadservice values in the values file.
+        indent = 2 if root else 0
 
         def template_value(expression: str, quote: bool = True) -> str:
             marker = f"__HELMFILE_GOTMPL_{len(replacements)}__"
@@ -1436,19 +1692,20 @@ class ComposeToHelmfileConverter:
                 return raw_template(value)
             if isinstance(value, str) and self._contains_host_expression(value):
                 expression = self._compose_expression(value)
-                if key in {"port", "targetPort", "nodePort"}:
+                if key in {"port", "targetPort", "nodePort", "hostPort"}:
                     expression = f"{expression} | int"
                 return template_value(expression, quote=(key == "host"))
             return value
 
         values = template_host_values(values)
+        parent_values = template_host_values(copy.deepcopy(service.parent_values))
 
         if service.param_source and service.param_filename:
             filename = service.param_filename
             values["rosParamFileData"] = template_value(
-                f"readFile {self._go_string(filename)} | indent 4", quote=False
+                f"readFile {self._go_string(filename)} | indent {indent + 2}", quote=False
             )
-            param_data = f'|\n{{{{ readFile {self._go_string(filename)} | indent 4 }}}}'
+            param_data = f'|\n{{{{ readFile {self._go_string(filename)} | indent {indent + 2} }}}}'
             if service.ros_params:
                 # ROS 2 applies the last matching block of a parameter file,
                 # so the appended overrides win over the copied file.
@@ -1468,7 +1725,7 @@ class ComposeToHelmfileConverter:
                     width=1000,
                 )
                 param_data += "\n" + "\n".join(
-                    "    " + line for line in overrides.splitlines()
+                    " " * (indent + 2) + line for line in overrides.splitlines()
                 )
             replacements[values["rosParamFileData"]] = param_data
 
@@ -1479,7 +1736,7 @@ class ComposeToHelmfileConverter:
             marker = template_value(f'readFile {self._go_string(filename)}', quote=False)
             volume["data"] = marker
             replacements[marker] = (
-                f'|\n{{{{ readFile {self._go_string(filename)} | indent 6 }}}}'
+                f'|\n{{{{ readFile {self._go_string(filename)} | indent {indent + 4} }}}}'
             )
 
         x11 = values.pop("x11", None)
@@ -1506,7 +1763,7 @@ class ComposeToHelmfileConverter:
             if runtime_items is not None:
                 values[key] = [
                     (
-                        template_block(self._compose_expression(item), indent=4)
+                        template_block(self._compose_expression(item), indent=indent + 2)
                         if "\n" in item
                         else template_value(self._compose_expression(item))
                     )
@@ -1517,31 +1774,46 @@ class ComposeToHelmfileConverter:
             items = values.get(key)
             if isinstance(items, list):
                 values[key] = [
-                    literal_block(item, indent=4)
+                    literal_block(item, indent=indent + 2)
                     if isinstance(item, str) and "\n" in item
                     else item
                     for item in items
                 ]
 
-        content = yaml.safe_dump(
-            {VALUES_ROOT: values},
-            allow_unicode=True,
-            sort_keys=False,
-            width=1000,
-        )
-        root_key = f"{VALUES_ROOT}:\n"
-        if content == f"{VALUES_ROOT}: {{}}\n":
-            content = root_key
+        if "env" in values and "rmw" in values:
+            ordered_values = {}
+            for key, value in values.items():
+                if key != "rmw":
+                    ordered_values[key] = value
+                    if key == "env":
+                        ordered_values["rmw"] = values["rmw"]
+            values = ordered_values
+
+        def dump(data: dict[str, Any]) -> str:
+            return yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=1000)
+
         prefix_env = self._go_string(NAME_PREFIX_ENV)
         node_env = self._go_string(NODE_ENV)
-        runtime_values = (
-            f'  namePrefix: {{{{ env {prefix_env} | quote }}}}\n'
+        pad = " " * indent
+        content = (
+            f'{pad}namePrefix: {{{{ env {prefix_env} | quote }}}}\n'
             f'{{{{- if env {node_env} }}}}\n'
-            "  nodeSelector:\n"
-            f'    kubernetes.io/hostname: {{{{ env {node_env} | quote }}}}\n'
+            f"{pad}nodeSelector:\n"
+            f'{pad}  kubernetes.io/hostname: {{{{ env {node_env} | quote }}}}\n'
             "{{- end }}\n"
         )
-        content = content.replace(root_key, root_key + runtime_values, 1)
+        if values:
+            content += textwrap.indent(dump(values), pad)
+        if root:
+            content = f"{root}:\n" + content
+        if parent_values:
+            content += dump(parent_values)
+        if service.uses_name_helper:
+            helper = os.path.relpath(HELPERS_TEMPLATE, service.values_dir)
+            content = (
+                '{{- $prefixedName := readFile ' + self._go_string(helper) + ' -}}\n'
+                + content
+            )
         for marker, replacement in replacements.items():
             content = content.replace(marker, replacement)
         return content
@@ -1558,14 +1830,17 @@ class ComposeToHelmfileConverter:
     def _print_summary(
         statuses: list[tuple[str, str, str, str]],
     ) -> None:
-        for icon, service_name, target, message in statuses:
-            suffix = f": {message}" if message else ""
-            line = f"{icon} {service_name}{suffix}"
-            if icon.strip().startswith("⚠"):
-                line = f"\033[33m{line}\033[0m"
-            elif icon.strip().startswith("❌"):
-                line = f"\033[31m{line}\033[0m"
-            print(line)
+        grouped: dict[str, list[tuple[int, str]]] = {}
+        for icon, service_name, _, message in statuses:
+            severity = 2 if icon.startswith("❌") else 1 if icon.startswith("⚠") else 0
+            grouped.setdefault(service_name, []).append((severity, message))
+        for service_name, reports in grouped.items():
+            severity = max(level for level, _ in reports)
+            print(f"{('✅', '⚠️ ', '❌')[severity]} {service_name}")
+            for level, message in reports:
+                if level and message:
+                    for line in message.splitlines():
+                        print(f"   - {line}")
 
     def convert(self, dry_run: bool = False) -> None:
         self._validate_inputs()
@@ -1581,6 +1856,7 @@ class ComposeToHelmfileConverter:
             profiles=export_profiles,
         )
         full_services = full_config["services"]
+        self.resolved_services = full_services
         if self.verbose:
             print("Compose services: " + ", ".join(sorted(full_services)))
 
@@ -1616,9 +1892,11 @@ class ComposeToHelmfileConverter:
                 fatal_errors.append(f"{name}: {message}")
         if fatal_errors:
             self._print_summary(statuses)
-            raise ConversionError("; ".join(fatal_errors))
+            raise ConversionError("; ".join(fatal_errors), reported=True)
         if len({s.release_name for s in converted}) != len(converted):
             raise ConversionError("Compose service names produce duplicate Helm release names")
+        statuses.extend(self._translate_zenoh_topology(converted))
+        self._translate_service_urls(converted)
         converted.sort(
             key=lambda service: (
                 service.values_dir,
@@ -1630,6 +1908,10 @@ class ComposeToHelmfileConverter:
             Path("helmfile.yaml"): self._render_helmfile(converted),
             Path("environments/services.yaml.gotmpl"): self._render_services(converted),
         }
+        if any(service.uses_name_helper for service in converted):
+            artifacts[Path(HELPERS_TEMPLATE)] = self.jinja_env.loader.get_source(
+                self.jinja_env, "_helpers.tpl",
+            )[0]
         for service in converted:
             artifacts[
                 Path(service.values_dir) / "values.yaml.gotmpl"
@@ -1733,7 +2015,8 @@ def main() -> None:
             active_profiles_only=args.active_profiles_only,
         ).convert(dry_run=args.dry_run)
     except ConversionError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        if not exc.reported:
+            print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
 

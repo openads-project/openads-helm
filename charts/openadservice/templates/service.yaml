@@ -10,7 +10,13 @@ its overrides, and receives a prefixed, instance-specific resource name.
 {{- $baseName := include "openadservice.baseName" (dict "name" $.Values.name "releaseName" $.Release.Name "namePrefix" $.Values.namePrefix) }}
 {{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
 {{- if and $values.enable $values.enableService }}
-{{- if $values.ports }}
+{{- $nodePorts := list }}
+{{- range $values.ports }}
+{{- if not .hostPort }}
+{{- $nodePorts = append $nodePorts . }}
+{{- end }}
+{{- end }}
+{{- if $nodePorts }}
 apiVersion: v1
 kind: Service
 {{- $externalName := printf "%s-external" $name }}
@@ -26,7 +32,7 @@ spec:
     app.kubernetes.io/name: "{{ $name }}"
   type: NodePort
   ports:
-    {{- range $values.ports }}
+    {{- range $nodePorts }}
     - name: "{{ .protocol | default "TCP" | lower }}-{{ .port }}-{{ .targetPort }}"
       nodePort: {{ .nodePort }}
       port: {{ .port | default .targetPort }}

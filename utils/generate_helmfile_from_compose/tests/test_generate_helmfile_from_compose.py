@@ -118,6 +118,118 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
 
         self.assertEqual(expression, '(default "campus" (env "MAP"))')
 
+    def test_ports_default_to_host_ports_and_keep_internal_access(self) -> None:
+        ports, expose = self.converter._ports({
+            "ports": [
+                {"target": 7502, "published": "7502", "protocol": "udp"},
+                {"target": 80, "published": "8080"},
+                {"target": 7447},
+            ],
+            "expose": [80, "7502/udp", 9000, "9001/udp"],
+        })
+        self.assertEqual(ports, [
+            {"targetPort": 7502, "hostPort": 7502, "protocol": "UDP"},
+            {"targetPort": 80, "hostPort": 8080, "protocol": "TCP"},
+        ])
+        self.assertEqual(expose, [
+            {"targetPort": 80, "protocol": "TCP"},
+            {"targetPort": 7447, "protocol": "TCP"},
+            {"targetPort": 7502, "protocol": "UDP"},
+            {"targetPort": 9000, "protocol": "TCP"},
+            {"targetPort": 9001, "protocol": "UDP"},
+        ])
+        self.assertEqual(self.converter._ports({}), ([], []))
+
+    def test_chart_map_port_policies_match_published_port_for_all_protocols(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "ports.yaml"
+        chart_map.write_text(
+            "services:\n  api:\n    port_policies:\n"
+            "      30502: nodePort\n      '8080': hostPort\n"
+            "  other:\n    port_policies: {}\n"
+        )
+        converter = ComposeToHelmfileConverter(
+            compose_file=root / "compose.yml", profiles=[],
+            output_dir=root / "output", chart_map=chart_map,
+        )
+        service = {"image": "example.test/api:1", "ports": [
+            {"target": 7502, "published": "30502", "protocol": "udp"},
+            {"target": 7502, "published": "30502", "protocol": "tcp"},
+            {"target": 80, "published": "8080"},
+        ]}
+        expected = [
+            {"targetPort": 80, "hostPort": 8080, "protocol": "TCP"},
+            {"targetPort": 7502, "nodePort": 30502, "protocol": "TCP"},
+            {"targetPort": 7502, "nodePort": 30502, "protocol": "UDP"},
+        ]
+        with (
+            patch.object(converter, "_chart_ref", return_value=ChartRef("oci://example.test/api", "1")),
+            patch.object(converter, "_chart_defaults", return_value={}),
+        ):
+            self.assertEqual(converter._convert_service("api", service).values["ports"], expected)
+        other_ports, _ = converter._ports(service, "other")
+        self.assertTrue(all("hostPort" in port for port in other_ports))
+
+    def test_port_default_comparison_preserves_exposure_mode(self) -> None:
+        service = {"image": "example.test/api:1", "ports": [
+            {"target": 80, "published": "30080"},
+        ]}
+        expected = [{"targetPort": 80, "hostPort": 30080, "protocol": "TCP"}]
+        for mode in ("hostPort", "nodePort"):
+            with (
+                self.subTest(mode=mode),
+                patch.object(self.converter, "_chart_ref", return_value=ChartRef("oci://example.test/api", "1")),
+                patch.object(self.converter, "_chart_defaults", return_value={
+                    "ports": [{"targetPort": 80, mode: 30080}],
+                }),
+            ):
+                values = self.converter._convert_service("api", service).values
+                if mode == "hostPort":
+                    self.assertNotIn("ports", values)
+                else:
+                    self.assertEqual(values["ports"], expected)
+
+    def test_published_ports_preserve_chart_exposure_and_deduplicate_internal_ports(self) -> None:
+        service = {
+            "image": "example.test/api:1",
+            "ports": [
+                {"target": 80, "published": "18080"},
+                {"target": 80, "published": "28080"},
+                {"target": 80, "published": "18080", "protocol": "udp"},
+            ],
+            "expose": [80],
+        }
+        with (
+            patch.object(self.converter, "_chart_ref", return_value=ChartRef("local", "1")),
+            patch.object(self.converter, "_chart_defaults", return_value={
+                "expose": [{"targetPort": 7447}],
+            }),
+        ):
+            values = self.converter._convert_service("api", service).values
+        self.assertEqual(values["expose"], [
+            {"targetPort": 7447},
+            {"targetPort": 80, "protocol": "TCP"},
+            {"targetPort": 80, "protocol": "UDP"},
+        ])
+        self.assertEqual(len(values["ports"]), 3)
+
+    def test_rejects_invalid_port_policies(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "ports.yaml"
+        for policies in (
+            None, [], [7502], [{7502: "nodePort"}],
+            {7502: "invalid"}, {0: "hostPort"}, {65536: "hostPort"},
+            {True: "hostPort"}, {7502.5: "hostPort"}, {"bad": "nodePort"},
+            {7502: []}, {7502: "nodePort", "7502": "hostPort"},
+        ):
+            with self.subTest(policies=policies):
+                chart_map.write_text(yaml.safe_dump({"services": {"api": {"port_policies": policies}}}))
+                with self.assertRaises(ConversionError):
+                    ComposeToHelmfileConverter(
+                        compose_file=root / "compose.yml", profiles=[],
+                        output_dir=root / "output", chart_map=chart_map,
+                    )
+
     def test_repeated_host_variable_reads_runtime_environment(self) -> None:
         expression = self.converter._compose_expression(
             "${CUSTOM_OPENDRIVE:-${MAP:-}}"
@@ -338,6 +450,20 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
 
         self.assertEqual(checks, [{"host": "carla-server", "port": 2000}])
 
+    def test_dependency_uses_generated_service_name_and_tcp_exposure(self) -> None:
+        self.converter.raw_services = {
+            "drivers.zed-camera.mediamtx": {
+                "image": "example.test/mediamtx:1",
+                "expose": ["8554/tcp", "8000/udp", "8001/udp"],
+            },
+        }
+        with (
+            patch.object(self.converter, "_chart_ref", return_value=ChartRef("local", "1")),
+            patch.object(self.converter, "_chart_defaults", return_value={}),
+        ):
+            checks = self.converter._depends_on({"depends_on": ["drivers.zed-camera.mediamtx"]})
+        self.assertEqual(checks, [{"host": "mediamtx", "port": 8554}])
+
     def test_environment_keeps_compose_source_order(self) -> None:
         self.converter.raw_services["bridge"] = {
             "environment": {
@@ -354,6 +480,21 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         environment = self.converter._environment("bridge", resolved, defaults)
 
         self.assertEqual(list(environment), ["USE_SIM_TIME", "HOST", "PORT"])
+
+    def test_environment_keeps_chart_default_service_hosts(self) -> None:
+        self.converter.raw_services = {"bridge": {}, "carla-server": {}, "triton-server": {}}
+        resolved = {"environment": {
+            "CARLA_HOST": "carla-server",
+            "TRITON_SERVER_URL": "triton-server:8001",
+            "LOG_LEVEL": "info",
+        }}
+        defaults = {"env": resolved["environment"]}
+
+        environment = self.converter._environment("bridge", resolved, defaults)
+
+        self.assertEqual(environment, {
+            "CARLA_HOST": "carla-server", "TRITON_SERVER_URL": "triton-server:8001",
+        })
 
     def test_chart_defaults_include_bundled_base_and_service_overrides(self) -> None:
         base_values = {
@@ -513,9 +654,9 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.converter.chart_map["services"][service_name] = {
             "chart": "oci://example.test/map-server",
             "version": "1.0.0",
-            "values": {"volumes": [{
+            "values": {"openadservice": {"volumes": [{
                 "mountPath": "/data/maps", "hostPath": ".runtime/maps",
-            }]},
+            }]}},
         }
         with patch.object(
             self.converter, "_chart_defaults",
@@ -530,6 +671,119 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             {"/data/maps", "/lanelet/lanelet.osm"},
         )
         self.assertIn('requiredEnv "PROJECT_PATH"', self.converter._render_values(converted))
+
+    def test_chart_map_values_are_release_values(self) -> None:
+        self.converter.chart_map["services"]["router"] = {
+            "chart": "oci://example.test/zenoh-router",
+            "version": "1.0.0",
+            "values": {
+                "enableAccessControl": False,
+                "openadservice": {"gpu": True},
+            },
+        }
+        with patch.object(
+            self.converter, "_chart_defaults",
+            return_value={"name": "router", "image": "example.test/router:1"},
+        ):
+            converted = self.converter._convert_service(
+                "router", {"image": "example.test/router:1"}
+            )
+
+        self.assertEqual(converted.values, {"gpu": True})
+        self.assertEqual(converted.parent_values, {"enableAccessControl": False})
+        values = self.converter._render_values(converted)
+        self.assertTrue(values.startswith("openadservice:\n  namePrefix:"))
+        self.assertIn("\n  gpu: true\n", values)
+        self.assertTrue(values.endswith("\nenableAccessControl: false\n"))
+
+    def test_rejects_invalid_chart_map_service_values(self) -> None:
+        self.converter.chart_map["services"]["router"] = {
+            "chart": "oci://example.test/zenoh-router",
+            "version": "1.0.0",
+            "values": {"openadservice": ["gpu"]},
+        }
+        with (
+            patch.object(self.converter, "_chart_defaults", return_value={}),
+            self.assertRaisesRegex(ConversionError, "router: chart values openadservice"),
+        ):
+            self.converter._convert_service("router", {"image": "example.test/router:1"})
+
+    def test_base_chart_takes_values_at_top_level(self) -> None:
+        chart = ChartRef("oci://example.test/openadservice", "1.2.0")
+        base_values = {"name": None, "gpu": False, "ports": []}
+
+        def fetch(command, **kwargs):
+            destination = Path(command[command.index("--destination") + 1])
+            with tarfile.open(destination / "openadservice-1.2.0.tgz", "w:gz") as archive:
+                for name, content in (
+                    ("openadservice/Chart.yaml", "name: openadservice\n"),
+                    ("openadservice/values.yaml", yaml.safe_dump(base_values)),
+                ):
+                    data = content.encode()
+                    entry = tarfile.TarInfo(name)
+                    entry.size = len(data)
+                    archive.addfile(entry, io.BytesIO(data))
+
+        self.converter.chart_map["services"]["talker"] = {
+            "chart": chart.url,
+            "version": chart.version,
+            "values": {"gpu": True},
+        }
+        with patch("generate_helmfile_from_compose.subprocess.run", side_effect=fetch):
+            self.assertEqual(self.converter._chart_defaults(chart), base_values)
+            converted = self.converter._convert_service(
+                "talker", {"image": "example.test/talker:1"}
+            )
+
+        self.assertIs(converted.values["gpu"], True)
+        self.assertEqual(converted.parent_values, {})
+        values = self.converter._render_values(converted)
+        self.assertTrue(values.startswith(
+            'namePrefix: {{ env "DEPLOYMENT_PREFIX" | quote }}\n'
+            '{{- if env "NODE" }}\n'
+            "nodeSelector:\n"
+            '  kubernetes.io/hostname: {{ env "NODE" | quote }}\n'
+            "{{- end }}\n"
+        ))
+        self.assertIn("\ngpu: true\n", values)
+        self.assertNotIn("openadservice:", values)
+
+    def test_block_indentation_follows_values_root(self) -> None:
+        for chart, indent in (
+            (ChartRef("oci://example.test/service", "1.0.0"), 2),
+            (ChartRef("oci://example.test/openadservice", "1.2.0"), 0),
+        ):
+            with self.subTest(chart=chart.url):
+                service = ConvertedService(
+                    name="service",
+                    release_name="service",
+                    chart=chart,
+                    values_dir="service",
+                    values={
+                        "args": ["bash", "-c", "echo a\necho b\n"],
+                        "volumes": [{"mountPath": "/config.txt", "dataFile": "config.txt"}],
+                    },
+                    param_source=Path("params.yml"),
+                    param_filename="params.yml",
+                    ros_params={"timeout_s": 5.0},
+                )
+                values = self.converter._render_values(service)
+                pad = " " * indent
+                self.assertIn(
+                    f"{pad}- |\n{pad}  echo a\n{pad}  echo b\n", values,
+                )
+                self.assertIn(
+                    f'{pad}  data: |\n{{{{ readFile "config.txt" | indent {indent + 4} }}}}\n',
+                    values,
+                )
+                self.assertIn(
+                    f"{pad}rosParamFileData: |\n"
+                    f'{{{{ readFile "params.yml" | indent {indent + 2} }}}}\n'
+                    f"{pad}  /**:\n"
+                    f"{pad}    ros__parameters:\n"
+                    f"{pad}      timeout_s: 5.0\n",
+                    values,
+                )
 
     def test_variable_directory_bind_uses_runtime_host_root(self) -> None:
         root = self.converter.compose_dir
@@ -662,9 +916,15 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
     def test_bind_overrides_directory_copy(self) -> None:
         source = self.converter.compose_dir / "shared"
         source.mkdir()
-        self.converter.chart_map["volume_policies"] = {
-            "shared-service": {"/keep": "bind"}
-        }
+        chart_map = self.converter.compose_dir / "volume-policies.yaml"
+        chart_map.write_text(
+            "services:\n  shared-service:\n    volume_policies:\n"
+            "      /keep: bind\n      /copied: copy\n"
+        )
+        self.converter = ComposeToHelmfileConverter(
+            compose_file=self.converter.compose_file, profiles=[],
+            output_dir=self.converter.output_dir, chart_map=chart_map,
+        )
         volumes, _, _, _, _, directories = self.converter._volumes(
             "shared-service",
             {"volumes": [
@@ -677,6 +937,36 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertIn('requiredEnv "PROJECT_PATH"', volumes[0]["hostPath"])
         self.assertNotIn("assets/shared-service", volumes[0]["hostPath"])
         self.assertFalse(directories)
+        for service_name, target in (("other-service", "/keep"), ("shared-service", "/copied")):
+            with self.subTest(service=service_name, target=target):
+                _, _, _, _, _, directories = self.converter._volumes(
+                    service_name,
+                    {"volumes": [{"type": "bind", "source": str(source), "target": target}]},
+                    {}, "assets/copied-service",
+                )
+                self.assertEqual(directories, {"shared": source})
+
+    def test_rejects_invalid_service_volume_policies(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "volume-policies.yaml"
+        for policies in (None, [], {"relative": "bind"}, {1: "copy"}, {"/keep": "invalid"}, {"/keep": []}):
+            with self.subTest(policies=policies):
+                chart_map.write_text(yaml.safe_dump({"services": {"api": {"volume_policies": policies}}}))
+                with self.assertRaisesRegex(ConversionError, "api: volume_policies"):
+                    ComposeToHelmfileConverter(
+                        compose_file=root / "compose.yml", profiles=[],
+                        output_dir=root / "output", chart_map=chart_map,
+                    )
+
+    def test_rejects_legacy_top_level_volume_policies(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "volume-policies.yaml"
+        chart_map.write_text("volume_policies:\n  api:\n    /keep: bind\n")
+        with self.assertRaisesRegex(ConversionError, "unknown chart map keys: volume_policies"):
+            ComposeToHelmfileConverter(
+                compose_file=root / "compose.yml", profiles=[],
+                output_dir=root / "output", chart_map=chart_map,
+            )
 
     def test_numeric_looking_chart_version_stays_a_string(self) -> None:
         service = ConvertedService(

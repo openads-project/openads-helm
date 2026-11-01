@@ -35,11 +35,14 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 | --- | --- |
 | `excluded_profiles` | excludes services in these Compose profiles, even if active |
 | `services.<compose-service-name>.chart/version` | overrides the chart and version derived from the service's image |
-| `services.<compose-service-name>.values` | deep-merges into the generated Helm values |
-| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended as a final `/**` block, which ROS 2 applies last; values may use Compose interpolation such as `${VAR:-default}` |
-| `volume_policies.<compose-service-name>.<mount-target>` | sets the volume policy for a bind mount |
+| `services.<compose-service-name>.values` | deep-merges into the release's Helm values |
+| `services.<compose-service-name>.port_policies.<compose-source-port>` | sets the port policy for a Compose published port |
+| | `hostPort` (default): maps a Compose published host port to a `hostPort` |
+| | `nodePort`: maps a Compose published host port to a `nodePort` |
+| `services.<compose-service-name>.volume_policies.<mount-target>` | sets the volume policy for a bind mount |
 | | `copy` (default): copies the source to the Helmfile bundle; mounts as `configMap` (text files < 256 KiB) or `hostPath` |
 | | `bind`: mounts the source from `${PROJECT_PATH}` on the node as `hostPath`; needed for writable or shared mounts |
+| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended as a final `/**` block, which ROS 2 applies last; values may use Compose interpolation such as `${VAR:-default}` |
 
 ```yaml
 excluded_profiles: []
@@ -49,25 +52,38 @@ services: {}
   #   chart: <oci-chart-url>
   #   version: <chart-version>
   #   values:
-  #     <key>: <value>
+  #     <chart-key>: <value>
+  #     openadservice:
+  #       <openadservice-key>: <value>
+  #   port_policies:
+  #     <compose-source-port>: hostPort|nodePort
+  #   volume_policies:
+  #     <mount-target>: copy|bind
   #   ros_params:
   #     <ros-parameter-name>: <value>
   # --- for example ---
   # zenoh-router:
   #   chart: oci://ghcr.io/openads-project/openads-helm/zenoh-router
   #   version: 0.2.10
+  #   values:
+  #     allowedRosTopics: [/tf]
+  #   port_policies:
+  #     7447: nodePort
+  # talker:
+  #   chart: oci://ghcr.io/openads-project/openads-helm/openadservice
+  #   version: 1.2.0
+  #   values:
+  #     gpu: true
   # perception.point-cloud-object-detection:
   #   ros_params:
   #     prediction.server_url: ${TRITON_HOST:-triton-server}:8001
-
-volume_policies: {}
-  # <compose-service-name>:
-  #   <mount-target>: copy|bind
-  # --- for example ---
   # monitoring.rviz-carla:
-  #   /docker-ros/ws/monitoring-volume: bind
+  #   volume_policies:
+  #     /docker-ros/ws/monitoring-volume: bind
 ```
 
 ## CI Integration
 
-For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) is provided that runs the generator and publishes the generated Helmfile setup as an workflow artifact and OCI bundle. See [openadsim](https://github.com/openads-project/openadsim/blob/main/.github/workflows/helmfile-oci.yml) for an integration example.
+For CI integration, a reusable GitHub workflow ([`reusable-helmfile-oci.yml`](../../.github/workflows/reusable-helmfile-oci.yml)) and GitLab template ([`reusable-helmfile-oci.yml`](../../.gitlab-ci/reusable-helmfile-oci.yml)) are provided that run the generator and publish the generated Helmfile setup as OCI bundle `<registry>/<repository>/helmfile:<ref>`. See [openadsim](https://github.com/openads-project/openadsim/blob/main/.github/workflows/helmfile-oci.yml) for an integration example.
+
+Bundles older than one month, except `main` and `vX.Y.Z`, can be deleted with [`reusable-helmfile-cleanup.yml`](../../.github/workflows/reusable-helmfile-cleanup.yml) or a matching GitLab cleanup policy.
