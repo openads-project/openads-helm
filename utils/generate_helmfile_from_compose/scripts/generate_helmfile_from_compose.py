@@ -570,6 +570,18 @@ class ComposeToHelmfileConverter:
             return ChartRef(
                 mapping["chart"], str(mapping["version"]),
             )
+        gitlab_match = re.fullmatch(
+            r"(?P<registry>(?:registry\.)?gitlab\.[^/:]+(?::\d+)?)/"
+            r"(?P<repository>[^:@]+):(?P<tag>[^@]+)(?:@.+)?",
+            image,
+        )
+        if gitlab_match:
+            registry, repository, tag = gitlab_match.group("registry", "repository", "tag")
+            chart_name = self._sanitize_name(repository.rsplit("/", 1)[-1])
+            return ChartRef(
+                url=f"oci://{registry}/{repository}/helm/{chart_name}",
+                version=tag.removeprefix("v"),
+            )
         match = re.fullmatch(
             r"ghcr\.io/(?P<owner>[^/]+)/(?P<repository>[^:@]+):"
             r"(?P<tag>[^@]+)(?:@.+)?",

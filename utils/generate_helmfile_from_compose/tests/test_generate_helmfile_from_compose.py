@@ -65,6 +65,20 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             "1.2.3",
         )
 
+    def test_gitlab_image_uses_project_chart_without_version_prefix(self) -> None:
+        repository = "some/path/some_repository"
+        for registry in ("gitlab.example.de:5050", "registry.gitlab.com"):
+            with self.subTest(registry=registry):
+                self.assertEqual(
+                    self.converter._chart_ref(
+                        "repository", f"{registry}/{repository}:v1.0.2",
+                    ),
+                    ChartRef(
+                        f"oci://{registry}/{repository}/helm/some-repository",
+                        "1.0.2",
+                    ),
+                )
+
     def test_latest_image_uses_newest_main_chart(self) -> None:
         tags = ["1.10.0-main", "1.9.0-main", "2.0.0", "2.0.0-feature", "latest"]
         with patch.object(self.converter, "_registry_tags", return_value=tags) as registry:
