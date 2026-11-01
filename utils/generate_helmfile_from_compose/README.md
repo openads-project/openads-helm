@@ -34,6 +34,8 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 | Parameter | Description |
 | --- | --- |
 | `excluded_profiles` | excludes services in these Compose profiles, even if active |
+| `services._defaults` | defaults for all service mapping keys below; deep-merged with service-specific settings taking precedence; lists are replaced |
+| `services.<compose-service-name>.inherit_defaults` | defaults to `true`; set to `false` to ignore all `_defaults` settings for this service |
 | `services.<compose-service-name>.chart/version` | overrides the chart and version derived from the service's image |
 | `services.<compose-service-name>.values` | deep-merges into the release's Helm values |
 | `services.<compose-service-name>.port_policies.<compose-source-port>` | sets the port policy for a Compose published port |

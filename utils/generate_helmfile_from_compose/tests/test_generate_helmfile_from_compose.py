@@ -710,6 +710,147 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertIn("\n  gpu: true\n", values)
         self.assertTrue(values.endswith("\nenableAccessControl: false\n"))
 
+    def test_chart_map_default_values_apply_to_unmapped_services_and_allow_overrides(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "defaults.yaml"
+        default_values = {
+            "openadservice": {
+                "imagePullSecrets": [{"name": "shared"}],
+                "env": {"SHARED": "default", "OVERRIDE": "default"},
+            },
+            "parentSetting": True,
+        }
+        chart_map.write_text(yaml.safe_dump({"services": {
+            "_defaults": {"values": default_values},
+            "custom": {"values": {"openadservice": {
+                "imagePullSecrets": [],
+                "env": {"OVERRIDE": "custom"},
+            }}},
+        }}))
+        converter = ComposeToHelmfileConverter(
+            compose_file=root / "compose.yml", profiles=[],
+            output_dir=root / "output", chart_map=chart_map,
+        )
+        with patch.object(converter, "_chart_defaults", return_value={}):
+            custom = converter._convert_service("custom", {"image": "ghcr.io/example/api:v1.0.0"})
+            inherited = converter._convert_service("unmapped", {"image": "ghcr.io/example/api:v1.0.0"})
+
+        self.assertEqual(custom.values["imagePullSecrets"], [])
+        self.assertEqual(custom.values["env"], {"SHARED": "default", "OVERRIDE": "custom"})
+        self.assertEqual(inherited.values["imagePullSecrets"], [{"name": "shared"}])
+        self.assertEqual(inherited.values["env"]["OVERRIDE"], "default")
+        self.assertEqual(custom.parent_values, {"parentSetting": True})
+        self.assertEqual(inherited.parent_values, {"parentSetting": True})
+        self.assertEqual(converter.service_mappings["_defaults"]["values"], default_values)
+        self.assertIn("imagePullSecrets:", converter._render_values(inherited))
+
+    def test_chart_map_defaults_support_all_service_keys(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "defaults.yaml"
+        chart_map.write_text(yaml.safe_dump({"services": {
+            "_defaults": {
+                "chart": "oci://example.test/shared", "version": "1.0.0",
+                "ros_params": {"shared": True, "timeout": 1},
+                "port_policies": {8080: "nodePort", 9090: "nodePort"},
+                "volume_policies": {"/data": "bind", "/config": "bind"},
+            },
+            "custom": {
+                "version": "2.0.0",
+                "ros_params": {"timeout": 2},
+                "port_policies": {8080: "hostPort"},
+                "volume_policies": {"/config": "copy"},
+            },
+        }}))
+        converter = ComposeToHelmfileConverter(
+            compose_file=root / "compose.yml", profiles=[],
+            output_dir=root / "output", chart_map=chart_map,
+        )
+        params = root / "params.yml"
+        params.write_text('/**:\n  ros__parameters:\n    original: true\n')
+        service = {
+            "image": "example.test/api:1",
+            "ports": [{"target": 80, "published": "8080"},
+                      {"target": 90, "published": "9090"}],
+            "volumes": [{"type": "bind", "source": str(params), "target": "/params.yml"}],
+        }
+        for name, version, timeout, port_key, volume_policy in (
+            ("unmapped", "1.0.0", 1, "nodePort", "bind"),
+            ("custom", "2.0.0", 2, "hostPort", "copy"),
+        ):
+            with self.subTest(service=name), patch.object(converter, "_chart_defaults", return_value={}):
+                converted = converter._convert_service(name, service)
+                self.assertEqual(converted.chart, ChartRef("oci://example.test/shared", version))
+                self.assertEqual(converted.values["ports"][0][port_key], 8080)
+                self.assertEqual(converted.values["ports"][1]["nodePort"], 9090)
+                self.assertEqual(converter._volume_policy(name, "/data"), "bind")
+                self.assertEqual(converter._volume_policy(name, "/config"), volume_policy)
+                rendered = converter._render_values(converted)
+                self.assertIn("shared: true", rendered)
+                self.assertIn(f"timeout: {timeout}", rendered)
+
+    def test_service_can_disable_all_defaults(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "defaults.yaml"
+        chart_map.write_text(yaml.safe_dump({"services": {
+            "_defaults": {
+                "chart": "oci://example.test/shared", "version": "1.0.0",
+                "values": {"openadservice": {"imagePullSecrets": [{"name": "shared"}]}},
+                "ros_params": {"shared": True},
+                "port_policies": {8080: "nodePort"},
+                "volume_policies": {"/data": "bind"},
+            },
+            "isolated": {
+                "inherit_defaults": False,
+                "values": {"openadservice": {"gpu": True}},
+            },
+            "inherited": {"inherit_defaults": True},
+        }}))
+        converter = ComposeToHelmfileConverter(
+            compose_file=root / "compose.yml", profiles=[],
+            output_dir=root / "output", chart_map=chart_map,
+        )
+        with patch.object(converter, "_chart_defaults", return_value={}):
+            converted = converter._convert_service("isolated", {
+                "image": "ghcr.io/example/api:v2.0.0",
+                "ports": [{"target": 80, "published": "8080"}],
+            })
+        self.assertEqual(converted.chart, ChartRef("oci://ghcr.io/example/api/helm/api", "2.0.0"))
+        self.assertTrue(converted.values["gpu"])
+        self.assertNotIn("imagePullSecrets", converted.values)
+        self.assertEqual(converted.values["ports"], [
+            {"targetPort": 80, "hostPort": 8080, "protocol": "TCP"},
+        ])
+        self.assertIsNone(converter._volume_policy("isolated", "/data"))
+        for name in ("inherited", "unmapped"):
+            self.assertEqual(converter._chart_ref(name, "unused"), ChartRef("oci://example.test/shared", "1.0.0"))
+            self.assertEqual(converter._volume_policy(name, "/data"), "bind")
+
+    def test_rejects_invalid_inherit_defaults(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "defaults.yaml"
+        for name, value in (("api", "false"), ("api", 0), ("api", None), ("_defaults", False)):
+            with self.subTest(name=name, value=value):
+                chart_map.write_text(yaml.safe_dump({"services": {name: {"inherit_defaults": value}}}))
+                with self.assertRaisesRegex(ConversionError, "inherit_defaults"):
+                    ComposeToHelmfileConverter(
+                        compose_file=root / "compose.yml", profiles=[],
+                        output_dir=root / "output", chart_map=chart_map,
+                    )
+
+    def test_rejects_invalid_chart_map_defaults(self) -> None:
+        root = Path(self.temp_dir.name)
+        chart_map = root / "defaults.yaml"
+        for defaults in ([], {"chart": "example"}, {"values": []}, {"unknown": True},
+                         {"ros_params": []}, {"port_policies": {80: "invalid"}},
+                         {"volume_policies": {"/data": "invalid"}}):
+            with self.subTest(defaults=defaults):
+                chart_map.write_text(yaml.safe_dump({"services": {"_defaults": defaults}}))
+                with self.assertRaisesRegex(ConversionError, "_defaults"):
+                    ComposeToHelmfileConverter(
+                        compose_file=root / "compose.yml", profiles=[],
+                        output_dir=root / "output", chart_map=chart_map,
+                    )
+
     def test_rejects_invalid_chart_map_service_values(self) -> None:
         self.converter.chart_map["services"]["router"] = {
             "chart": "oci://example.test/zenoh-router",
