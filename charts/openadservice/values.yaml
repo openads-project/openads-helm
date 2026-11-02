@@ -80,6 +80,9 @@ initContainers: []
 # nodeSelector is a map of node labels for pod scheduling
 nodeSelector: {}
 
+# hostNetwork is a flag to use the node's network namespace
+hostNetwork: false
+
 # ports is a list of maps with `port`, `targetPort`, `nodePort`, `protocol` or `targetPort`, `hostPort`, `protocol` to create `NodePort` services or `hostPort` mappings
 ports: []
 # - port:         # source port (defaults to `targetPort` if not specified)
