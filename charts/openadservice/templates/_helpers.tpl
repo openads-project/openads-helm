@@ -108,3 +108,13 @@ Example:
 {{- $basename := include "openadservice.rfc1123CompliantName" (base .mountPath) -}}
 {{- printf "%s-%s" (printf "%s-%s" $serviceName $basename | trunc 50 | trimSuffix "-") (sha256sum .mountPath | trunc 12) -}}
 {{- end -}}
+
+{{/* merge overrides into each generated resource document */}}
+{{- define "openadservice.applyOverrides" }}
+{{- range splitList "\n---" .manifest }}
+{{- with printf "%s\n" . | fromYaml }}
+{{ toYaml (mergeOverwrite . (deepCopy ($.overrides | default dict))) }}
+---
+{{- end }}
+{{- end }}
+{{- end }}
