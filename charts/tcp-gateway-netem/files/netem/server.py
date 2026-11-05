@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import json
 import os
 import re
@@ -7,17 +6,19 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-
 STATE_KEYS = [
-    "IFACE", "AUTO_PEER", "PEER_HOST", "PEER_PORT", "ZENOH_PORT",
-    "DELAY", "JITTER", "LOSS", "RATE", "DIST", "LIMIT",
+    "IFACE",
+    "PEER_HOST",
+    "DELAY",
+    "JITTER",
+    "LOSS",
+    "RATE",
+    "DIST",
+    "LIMIT",
 ]
 KEY_MAP = {
     "iface": "IFACE",
-    "autoPeer": "AUTO_PEER",
     "peerHost": "PEER_HOST",
-    "peerPort": "PEER_PORT",
-    "zenohPort": "ZENOH_PORT",
     "delay": "DELAY",
     "jitter": "JITTER",
     "loss": "LOSS",
@@ -32,19 +33,11 @@ last_applied_at = None
 last_error = None
 
 
-def _is_true(value):
-    return str(value).lower() in ("1", "true", "yes", "on")
-
-
 def _validate(cfg):
     if not cfg.get("IFACE"):
         return "iface must be set"
-    if _is_true(cfg.get("AUTO_PEER", "true")) and not cfg.get("PEER_HOST"):
-        return "peerHost must be set when autoPeer=true"
-    if not cfg.get("PEER_HOST") and not cfg.get("PEER_PORT"):
-        return "either peerHost or peerPort must be set"
-    if not re.match(r"^[0-9]+$", cfg["ZENOH_PORT"]):
-        return "zenohPort must be an integer"
+    if not cfg.get("PEER_HOST"):
+        return "peerHost must be set"
     if not re.match(r"^[0-9]+(\.[0-9]+)?ms$", cfg["DELAY"]):
         return "delay must look like 30ms"
     if not re.match(r"^[0-9]+(\.[0-9]+)?ms$", cfg["JITTER"]):
@@ -62,7 +55,11 @@ def _apply(cfg):
     env = os.environ.copy()
     env.update({key: str(cfg[key]) for key in STATE_KEYS})
     proc = subprocess.run(
-        ["python3", "/netem/apply.py"], capture_output=True, text=True, env=env
+        ["python3", "/netem/apply.py"],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
     )
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "") + (proc.stdout or ""))
@@ -87,11 +84,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/v1/netem/state":
             with state_lock:
-                self._json(200, {
-                    "state": state,
-                    "lastAppliedAt": last_applied_at,
-                    "lastError": last_error,
-                })
+                self._json(
+                    200,
+                    {
+                        "state": state,
+                        "lastAppliedAt": last_applied_at,
+                        "lastError": last_error,
+                    },
+                )
             return
         self._json(404, {"error": "not found"})
 
@@ -107,8 +107,12 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length > 0 else b"{}"
             payload = json.loads(raw.decode("utf-8"))
-        except Exception:
+        except ValueError:
             self._json(400, {"error": "invalid json"})
+            return
+
+        if not isinstance(payload, dict):
+            self._json(400, {"error": "request must be a JSON object"})
             return
 
         updates = {}
@@ -135,13 +139,16 @@ class Handler(BaseHTTPRequestHandler):
                 state.update(candidate)
                 last_applied_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 last_error = None
-                self._json(200, {
-                    "state": state,
-                    "appliedAt": last_applied_at,
-                    "durationMs": int((time.time() - started) * 1000),
-                    "tc": output,
-                })
-            except Exception as exc:
+                self._json(
+                    200,
+                    {
+                        "state": state,
+                        "appliedAt": last_applied_at,
+                        "durationMs": int((time.time() - started) * 1000),
+                        "tc": output,
+                    },
+                )
+            except (OSError, RuntimeError) as exc:
                 last_error = str(exc)
                 self._json(500, {"error": "tc apply failed", "details": last_error})
 
