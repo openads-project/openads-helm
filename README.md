@@ -24,6 +24,7 @@ This repository contains essential Helm charts for [***OpenADS***](https://opena
 | [triton-server](./charts/triton-server) | 26.05 | NVIDIA Triton Inference Server |
 | [zenoh-router](./charts/zenoh-router) | 0.2.10 | Zenoh Router for ROS 2 RMW Zenoh |
 | [tcp-gateway-netem](./charts/tcp-gateway-netem) | 0.1.0 | Generic TCP forwarding with network emulation |
+| [cpu-pool-control](./charts/cpu-pool-control) | 0.1.0 | CPU pool and frequency control for pods |
 
 ## 🚀 Usage
 
