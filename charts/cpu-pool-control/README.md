@@ -20,7 +20,7 @@ helm upgrade --install cpu-pool-control ./charts/cpu-pool-control -f values.yaml
 ```
 
 Label pods in the release namespace with
-`openads-project.github.io/cpu-pool-control/pool: ads` or `simulation`
+`openads-project.github.io/cpu-pool-control: ads` or `simulation`
 (using `openadservice.labels` for dependent charts).
 See [values.yaml](values.yaml) for settings; checks default to every 5 seconds.
 CPU numbers must match the host, and pools must not share physical cores.

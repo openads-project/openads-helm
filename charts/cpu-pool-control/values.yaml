@@ -5,7 +5,7 @@ active: false
 nodeSelector: {}
 
 # labelKey is the label key used to identify pods to be controlled; the label value is the pool name
-labelKey: openads-project.github.io/cpu-pool-control/pool
+labelKey: openads-project.github.io/cpu-pool-control
 
 # checkInterval is how often labelled pods and CPU settings are checked
 checkInterval: 5s
