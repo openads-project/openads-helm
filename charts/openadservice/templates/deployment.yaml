@@ -49,6 +49,12 @@ spec:
       - name: "{{ . }}"
       {{- end }}
       {{- end }}
+      {{- with $values.serviceAccountName }}
+      serviceAccountName: "{{ . }}"
+      {{- end }}
+      {{- if $values.hostIPC }}
+      hostIPC: true
+      {{- end }}
       terminationGracePeriodSeconds: 1
       {{- if $values.gpu }}
       runtimeClassName: nvidia

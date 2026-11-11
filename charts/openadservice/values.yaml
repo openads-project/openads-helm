@@ -45,6 +45,9 @@ image: rwthika/ros2:latest
 # imagePullSecrets is a list of secret names required for pulling the container image from a private registry
 imagePullSecrets: []
 
+# serviceAccountName is the name of an existing ServiceAccount to run the pod as (uses the namespace's `default` if unset)
+serviceAccountName: null
+
 # imagePullPolicy is the image pull policy for the container image
 imagePullPolicy: IfNotPresent
 
@@ -65,6 +68,9 @@ x11XauthorityFile: null
 
 # shm is a flag to enable the container to access the host's shared memory (/dev/shm)
 shm: true
+
+# hostIPC is a flag to run the pod in the host's IPC namespace (System V IPC, POSIX message queues, CUDA IPC across pods)
+hostIPC: false
 
 # dependsOnApplyNamePrefix controls whether namePrefix is applied to dependsOn hosts
 dependsOnApplyNamePrefix: true
