@@ -1748,7 +1748,11 @@ class ComposeToHelmfileConverter:
                     if isinstance(value, list):
                         return [template_param(item) for item in value]
                     if self._contains_host_expression(value):
-                        return template_value(self._compose_expression(value))
+                        # standalone boolean defaults remain ROS booleans at render time
+                        boolean = re.fullmatch(
+                            r"\$\{[A-Za-z_][A-Za-z0-9_]*:-(?:true|false)\}", value
+                        )
+                        return template_value(self._compose_expression(value), quote=not boolean)
                     return value
 
                 overrides = yaml.safe_dump(
