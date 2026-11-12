@@ -411,6 +411,8 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             "server_url": "${SERVER_HOST:-server}:8001",
             "timeout_s": 5.0,
             "retries": 3,
+            "freeze": "${FREEZE:-false}",
+            "update": "${UPDATE:-true}",
         }}}
         defaults = {"name": "service", "image": service["image"], "rosParamFileMountPath": "/params.yml"}
         with (
@@ -428,7 +430,9 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             "      ros__parameters:\n"
             '        server_url: {{ (printf "%s%s" (default "server" (env "SERVER_HOST")) ":8001") | quote }}\n'
             "        timeout_s: 5.0\n"
-            "        retries: 3\n",
+            "        retries: 3\n"
+            '        freeze: {{ (default "false" (env "FREEZE")) }}\n'
+            '        update: {{ (default "true" (env "UPDATE")) }}\n',
             values,
         )
 
