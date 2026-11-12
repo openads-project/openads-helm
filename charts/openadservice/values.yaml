@@ -136,3 +136,11 @@ volumes: []
 # - mountPath:      # container mount path (for `image` volumes)
 #   image:          # OCI image reference
 #   imagePath:      # optional relative path inside the image
+
+# overrides are merged into generated resources after applying the values above; maps merge recursively and lists are replaced
+overrides:
+  deployment: {}
+  # service applies to both internal and external Services
+  service: {}
+  # configMap applies to all generated ConfigMaps
+  configMap: {}

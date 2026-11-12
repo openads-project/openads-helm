@@ -13,6 +13,14 @@ context exposes these merged values and Helm's built-in objects to tpl calls bel
 {{- $_ := set $values "name" $name }}
 {{- if and $values.enable $values.enableDeployment }}
 {{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
+{{- include "openadservice.applyOverrides" (dict "manifest" (include "openadservice.deployment" $ctx) "overrides" $values.overrides.deployment) }}
+{{- end }}
+{{- end }}
+
+{{- define "openadservice.deployment" }}
+{{- $values := .Values }}
+{{- $name := $values.name }}
+{{- $ctx := . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -218,6 +226,4 @@ spec:
       {{- end }}
       {{- end }}
       {{- end }}
----
-{{- end }}
 {{- end }}
