@@ -1,0 +1,20 @@
+# active is a flag to optionally enable CPU control; if false, CPU control is restored to defaults
+active: false
+
+# nodeSelector is a map of node labels for pod scheduling
+nodeSelector: {}
+
+# labelKey is the label key used to identify pods to be controlled; the label value is the pool name
+labelKey: openads-project.github.io/cpu-pool-control
+
+# checkInterval is how often labelled pods and CPU settings are checked
+checkInterval: 5s
+
+# pools is a map of pool names to pool settings `cpus` and `maxFrequencyMHz`
+# pool:
+#   openads:
+#     cpus: "8-11,24-27"
+#     maxFrequencyMHz: 2000
+#   simulation:
+#     cpus: "0-7,16-23"
+pools: {}

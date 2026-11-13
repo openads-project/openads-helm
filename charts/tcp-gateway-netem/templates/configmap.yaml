@@ -1,0 +1,52 @@
+{{- if .Values.forwards }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  haproxy.cfg: |
+    global
+      maxconn {{ .Values.maxConnections }}
+      maxpipes {{ .Values.maxConnections }}
+      nbthread 1
+    defaults
+      mode tcp
+      timeout connect {{ .Values.timeouts.connect }}
+      timeout client {{ .Values.timeouts.idle }}
+      timeout server {{ .Values.timeouts.idle }}
+      option splice-auto
+      option clitcpka
+      option srvtcpka
+    resolvers destination_dns
+      parse-resolv-conf
+      hold valid 5s
+      hold nx 1s
+      hold timeout 1s
+      hold refused 1s
+      hold other 1s
+    {{- $ports := dict }}
+    {{- $names := dict }}
+    {{- $hostPorts := dict }}
+    {{- range .Values.forwards }}
+    {{- if or (hasKey $ports (toString .listenPort)) (hasKey $names .name) }}
+    {{- fail "forward names and listenPort values must be unique" }}
+    {{- end }}
+    {{- $_ := set $ports (toString .listenPort) true }}
+    {{- $_ := set $names .name true }}
+    {{- if or (eq .name "netem-http") (and $.Values.netem.enabled (eq (int .listenPort) (int $.Values.netem.http.port))) }}
+    {{- fail "forward listener conflicts with the controller" }}
+    {{- end }}
+    {{- if .hostPort }}
+    {{- if hasKey $hostPorts (toString .hostPort) }}
+    {{- fail "forward hostPort values must be unique" }}
+    {{- end }}
+    {{- $_ := set $hostPorts (toString .hostPort) true }}
+    {{- end }}
+    listen {{ .name }}
+      bind 0.0.0.0:{{ .listenPort }}
+      server destination {{ .targetHost }}:{{ .targetPort }} resolvers destination_dns resolve-prefer ipv4 init-addr libc,none
+    {{- end }}
+{{- if .Values.netem.enabled }}
+{{ (.Files.Glob "files/netem/*.py").AsConfig | indent 2 }}
+{{- end }}
+{{- end }}

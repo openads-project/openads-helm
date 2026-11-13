@@ -1,0 +1,110 @@
+{{- if .Values.forwards }}
+{{- $hostPorts := false }}
+{{- range .Values.forwards }}
+{{- $hostPorts = or $hostPorts (not (empty .hostPort)) }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  replicas: 1
+  {{- if $hostPorts }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- if .Values.netem.enabled }}
+      initContainers:
+      - name: netem-init
+        image: {{ .Values.netem.image | quote }}
+        command: [python3, /netem/apply.py]
+        securityContext: &netemSecurity
+          capabilities:
+            drop: [ALL]
+            add: [NET_ADMIN]
+        env: &netemEnv
+        - name: IFACE
+          value: {{ .Values.netem.iface | quote }}
+        - name: PEER_HOST
+          value: {{ required "netem.peerHost is required when emulation is enabled" .Values.netem.peerHost | quote }}
+        - name: DELAY
+          value: {{ .Values.netem.delay | quote }}
+        - name: JITTER
+          value: {{ .Values.netem.jitter | quote }}
+        - name: LOSS
+          value: {{ .Values.netem.loss | quote }}
+        - name: RATE
+          value: {{ .Values.netem.rate | quote }}
+        - name: DIST
+          value: {{ .Values.netem.distribution | quote }}
+        - name: LIMIT
+          value: {{ .Values.netem.limit | quote }}
+        - name: NETEM_HTTP_PORT
+          value: {{ .Values.netem.http.port | quote }}
+        volumeMounts: &netemMounts
+        - name: config
+          mountPath: /netem
+          readOnly: true
+      {{- end }}
+      containers:
+      - name: proxy
+        image: {{ .Values.image | quote }}
+        args: [haproxy, -W, -db, -f, /config/haproxy.cfg]
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 99
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+            add: [NET_BIND_SERVICE]
+        resources:
+{{ toYaml .Values.resources | indent 10 }}
+        ports:
+        {{- range .Values.forwards }}
+        - name: {{ .name }}
+          containerPort: {{ .listenPort }}
+          {{- with .hostPort }}
+          hostPort: {{ . }}
+          {{- end }}
+          protocol: TCP
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+      {{- if .Values.netem.enabled }}
+      - name: netem-http
+        image: {{ .Values.netem.image | quote }}
+        command: [python3, /netem/server.py]
+        securityContext: *netemSecurity
+        env: *netemEnv
+        resources:
+{{ toYaml .Values.netem.resources | indent 10 }}
+        ports:
+        - name: netem-http
+          containerPort: {{ .Values.netem.http.port }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: netem-http
+        volumeMounts: *netemMounts
+      {{- end }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Release.Name }}-config
+{{- end }}

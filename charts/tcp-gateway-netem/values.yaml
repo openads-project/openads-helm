@@ -1,0 +1,80 @@
+# forwards is a list of independent TCP listeners and their destinations; an empty list creates no resources
+# each entry requires a unique name (at most 15 characters), listenPort, targetHost and targetPort
+# listenPort is exposed on the gateway's ClusterIP Service; listener ports must be unique
+# targetHost is a destination IPv4 address or hostname; targetPort is its TCP port
+# hostPort optionally exposes the listener on the node and selects a Recreate deployment strategy
+# forwards:
+# - name: stream-a
+#   listenPort: 19000
+#   hostPort: 19000
+#   targetHost: destination.example.org
+#   targetPort: 20000
+# - name: stream-b
+#   listenPort: 19001
+#   targetHost: internal-service
+#   targetPort: 20001
+forwards: []
+
+# image is the TCP proxy image
+image: haproxy:3.2.9-alpine
+
+# nodeSelector selects the node on which the gateway pod runs
+nodeSelector: {}
+
+# resources sets Kubernetes resource requests and limits for the proxy
+resources: {}
+
+# maxConnections limits simultaneous TCP connections across all listeners
+maxConnections: 4096
+
+timeouts:
+
+  # connect is the timeout for establishing a connection to a destination
+  connect: 5s
+
+  # idle is the inactivity timeout for either direction of an established connection
+  idle: 1h
+
+netem:
+
+  # enabled adds traffic control and its HTTP controller; false leaves only TCP forwarding
+  enabled: true
+
+  # image is the utility image used by the traffic-control init container and HTTP controller
+  image: nicolaka/netshoot:v0.14
+
+  # iface is the pod interface on which egress traffic is shaped
+  iface: eth0
+
+  # peerHost is the required remote IPv4 address or hostname whose traffic shares one shaping budget
+  # all resolved IPv4 addresses match, regardless of port; traffic to other destinations remains unshaped
+  peerHost: ""
+
+  # delay is the egress delay added to matching packets
+  delay: 0ms
+
+  # jitter is the variation around delay
+  jitter: 0ms
+
+  # loss is the percentage of matching packets to drop
+  loss: 0%
+
+  # rate is the aggregate bandwidth limit shared by all matching streams
+  rate: 1000mbit
+
+  # distribution is the jitter distribution, e.g., normal or pareto
+  distribution: normal
+
+  # limit is the maximum number of packets held in the emulation queue
+  limit: 1000
+
+  # resources sets Kubernetes resource requests and limits for the HTTP controller
+  resources: {}
+
+  http:
+
+    # port is the controller's container and ClusterIP Service port
+    port: 18080
+
+    # nodePort optionally exposes the controller on a Kubernetes NodePort; null keeps it cluster-internal
+    nodePort: null
