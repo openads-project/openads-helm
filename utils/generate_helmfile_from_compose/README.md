@@ -44,7 +44,7 @@ A special chart map file can be passed to the generator via `--chart-map CHART_M
 | `services.<compose-service-name>.volume_policies.<mount-target>` | sets the volume policy for a bind mount |
 | | `copy` (default): copies the source to the Helmfile bundle; mounts as `configMap` (text files < 256 KiB) or `hostPath` |
 | | `bind`: mounts the source from `${PROJECT_PATH}` on the node as `hostPath`; needed for writable or shared mounts |
-| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended as a final `/**` block, which ROS 2 applies last; values may use Compose interpolation such as `${VAR:-default}` |
+| `services.<compose-service-name>.ros_params` | overrides single ROS parameters of the mounted parameter file; appended under the original node selectors so they override the copied file; values may use Compose interpolation such as `${VAR:-default}` |
 
 ```yaml
 excluded_profiles: []

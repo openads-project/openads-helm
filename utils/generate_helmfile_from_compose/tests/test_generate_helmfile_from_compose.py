@@ -413,6 +413,8 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             "retries": 3,
             "freeze": "${FREEZE:-false}",
             "update": "${UPDATE:-true}",
+            "input_topics": '${INPUT_TOPICS:-["/lidar", "/camera"]}',
+            "empty_topics": "${EMPTY_TOPICS:-[]}",
         }}}
         defaults = {"name": "service", "image": service["image"], "rosParamFileMountPath": "/params.yml"}
         with (
@@ -435,6 +437,22 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             '        update: {{ (default "true" (env "UPDATE")) }}\n',
             values,
         )
+
+        self.assertIn(
+            'input_topics: {{ (default "[\\"/lidar\\", \\"/camera\\"]" (env "INPUT_TOPICS")) | mustFromJson | toJson }}',
+            values,
+        )
+        self.assertIn(
+            'empty_topics: {{ (default "[]" (env "EMPTY_TOPICS")) | mustFromJson | toJson }}',
+            values,
+        )
+
+        for selector in ("/**/*", "/understanding/simple_object_tracking"):
+            with self.subTest(selector=selector):
+                source.write_text(f"{selector}:\n  ros__parameters:\n    input_topics: [/old]\n")
+                scoped_values = self.converter._render_values(converted)
+                self.assertIn(f"    {selector}:\n      ros__parameters:\n", scoped_values)
+                self.assertNotIn("    /**:\n", scoped_values)
 
     def test_ros_params_require_parameter_file(self) -> None:
         service = {"image": "example.test/service:1"}
@@ -908,6 +926,8 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
         self.assertNotIn("openadservice:", values)
 
     def test_block_indentation_follows_values_root(self) -> None:
+        source = self.converter.compose_dir / "params.yml"
+        source.write_text("/**:\n  ros__parameters:\n    timeout_s: 1.0\n")
         for chart, indent in (
             (ChartRef("oci://example.test/service", "1.0.0"), 2),
             (ChartRef("oci://example.test/openadservice", "1.2.0"), 0),
@@ -922,7 +942,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
                         "args": ["bash", "-c", "echo a\necho b\n"],
                         "volumes": [{"mountPath": "/config.txt", "dataFile": "config.txt"}],
                     },
-                    param_source=Path("params.yml"),
+                    param_source=source,
                     param_filename="params.yml",
                     ros_params={"timeout_s": 5.0},
                 )

@@ -1740,8 +1740,7 @@ class ComposeToHelmfileConverter:
             )
             param_data = f'|\n{{{{ readFile {self._go_string(filename)} | indent {indent + 2} }}}}'
             if service.ros_params:
-                # ROS 2 applies the last matching block of a parameter file,
-                # so the appended overrides win over the copied file.
+                # append overrides within the parameter file's existing node scopes.
                 def template_param(value: Any) -> Any:
                     if isinstance(value, dict):
                         return {k: template_param(v) for k, v in value.items()}
@@ -1752,11 +1751,33 @@ class ComposeToHelmfileConverter:
                         boolean = re.fullmatch(
                             r"\$\{[A-Za-z_][A-Za-z0-9_]*:-(?:true|false)\}", value
                         )
-                        return template_value(self._compose_expression(value), quote=not boolean)
+                        array = re.fullmatch(
+                            r"\$\{[A-Za-z_][A-Za-z0-9_]*:-(\[.*\])\}", value, re.S
+                        )
+                        expression = self._compose_expression(value)
+                        if array:
+                            # json flow arrays remain typed ROS arrays; malformed env values fail rendering.
+                            return template_value(f"{expression} | mustFromJson | toJson", quote=False)
+                        return template_value(expression, quote=not boolean)
                     return value
 
+                parameter_overrides = template_param(service.ros_params)
+
+                def override_scopes(node: Any) -> dict[str, Any]:
+                    if not isinstance(node, dict):
+                        return {}
+                    if "ros__parameters" in node:
+                        return {"ros__parameters": copy.deepcopy(parameter_overrides)}
+                    return {
+                        key: scoped
+                        for key, value in node.items()
+                        if (scoped := override_scopes(value))
+                    }
+
+                # reuse original scopes; a general /** override can lose to a more specific selector.
+                scopes = override_scopes(yaml.safe_load(service.param_source.read_text(encoding="utf-8")))
                 overrides = yaml.safe_dump(
-                    {"/**": {"ros__parameters": template_param(service.ros_params)}},
+                    scopes,
                     allow_unicode=True,
                     sort_keys=False,
                     width=1000,
