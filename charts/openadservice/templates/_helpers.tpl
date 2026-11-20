@@ -113,6 +113,7 @@ Example:
 {{- define "openadservice.applyOverrides" }}
 {{- range splitList "\n---" .manifest }}
 {{- with printf "%s\n" . | fromYaml }}
+{{- if hasKey . "Error" }}{{ fail (printf "failed to parse rendered manifest: %s" .Error) }}{{ end }}
 {{ toYaml (mergeOverwrite . (deepCopy ($.overrides | default dict))) }}
 ---
 {{- end }}
