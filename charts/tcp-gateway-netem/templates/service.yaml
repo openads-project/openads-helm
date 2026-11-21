@@ -1,0 +1,39 @@
+{{- if .Values.forwards }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}
+  ports:
+  {{- range .Values.forwards }}
+  - name: {{ .name }}
+    port: {{ .listenPort }}
+    targetPort: {{ .name }}
+    protocol: TCP
+  {{- end }}
+  {{- if .Values.netem.enabled }}
+  - name: netem-http
+    port: {{ .Values.netem.http.port }}
+    targetPort: netem-http
+  {{- end }}
+{{- if and .Values.netem.enabled .Values.netem.http.nodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-netem
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}
+  ports:
+  - name: netem-http
+    port: {{ .Values.netem.http.port }}
+    targetPort: netem-http
+    nodePort: {{ .Values.netem.http.nodePort }}
+{{- end }}
+{{- end }}

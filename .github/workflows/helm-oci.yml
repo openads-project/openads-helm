@@ -55,6 +55,8 @@ jobs:
         chart:
           - triton-server
           - zenoh-router
+          - tcp-gateway-netem
+          - cpu-pool-control
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+data:
+  config.json: |
+    {{ dict "active" .Values.active "labelKey" .Values.labelKey "checkInterval" .Values.checkInterval "pools" .Values.pools | toJson }}
+  controller.py: |
+{{ .Files.Get "files/controller.py" | indent 4 }}

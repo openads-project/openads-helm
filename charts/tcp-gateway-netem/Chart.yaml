@@ -1,0 +1,5 @@
+apiVersion: v2
+name: tcp-gateway-netem
+version: 0.1.0
+appVersion: 3.2.9
+description: Generic TCP forwarding with network emulation
