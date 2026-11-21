@@ -10,6 +10,15 @@ its overrides, and receives a prefixed, instance-specific resource name.
 {{- $baseName := include "openadservice.baseName" (dict "name" $.Values.name "releaseName" $.Release.Name "namePrefix" $.Values.namePrefix) }}
 {{- $name := include "openadservice.instanceName" (dict "baseName" $baseName "instanceKey" $instanceKey "hasInstances" $hasInstances) }}
 {{- if and $values.enable $values.enableService }}
+{{- $_ := set $values "name" $name }}
+{{- $ctx := dict "Values" $values "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
+{{- include "openadservice.applyOverrides" (dict "manifest" (include "openadservice.service" $ctx) "overrides" $values.overrides.service) }}
+{{- end }}
+{{- end }}
+
+{{- define "openadservice.service" }}
+{{- $values := .Values }}
+{{- $name := $values.name }}
 {{- $nodePorts := list }}
 {{- range $values.ports }}
 {{- if not .hostPort }}
@@ -63,6 +72,5 @@ spec:
       protocol: "{{ .protocol | default "TCP" }}"
     {{- end }}
 ---
-{{- end }}
 {{- end }}
 {{- end }}
