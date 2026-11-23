@@ -1491,6 +1491,15 @@ class ComposeToHelmfileConverter:
         if image and image != defaults.get("image"):
             values["image"] = image
 
+        if "pull_policy" in service:
+            pull_policy = service["pull_policy"]
+            policies = {"always": "Always", "never": "Never", "missing": "IfNotPresent", "if_not_present": "IfNotPresent"}
+            if not isinstance(pull_policy, str) or pull_policy not in policies:
+                raise ConversionError(
+                    f"{service_name}: unsupported Compose pull_policy {pull_policy!r}"
+                )
+            values["imagePullPolicy"] = policies[pull_policy]
+
         compose_command = self._normalize_command(service.get("entrypoint"))
         chart_command = self._normalize_command(defaults.get("command"))
         if not self._commands_equal(compose_command, chart_command):
