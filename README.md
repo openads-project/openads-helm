@@ -20,13 +20,13 @@ This repository contains essential Helm charts for [***OpenADS***](https://opena
 
 | Chart | Version | Description |
 | --- | --- | --- |
-| [openadservice](./charts/openadservice) | 1.2.0 | OpenADService base chart providing common structure and configuration |
+| [openadservice](./charts/openadservice) | 1.3.0 | OpenADService base chart providing common structure and configuration |
 | [triton-server](./charts/triton-server) | 26.05 | NVIDIA Triton Inference Server |
 | [zenoh-router](./charts/zenoh-router) | 0.2.10 | Zenoh Router for ROS 2 RMW Zenoh |
 
 ## 🚀 Usage
 
-> [!NOTE]  
+> [!NOTE]
 > Tested with k3s v1.35.7, Helm v3.19.0, and Helmfile v1.1.7.
 
 Helm charts are stored as OCI artifacts in the GitHub Container Registry and can be installed directly from there.
