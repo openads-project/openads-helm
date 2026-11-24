@@ -1,0 +1,12 @@
+{{- if .Values.flows }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+data:
+  controller.py: |
+{{ .Files.Get "files/controller.py" | indent 4 }}
+  config.json: |
+{{- $profile := pick .Values.netem "delay" "jitter" "loss" "rate" "distribution" "limit" }}
+{{ dict "ifb" "ifb-wan" "priority" 49000 "peer" (required "peerAddress is required" .Values.peerAddress) "flows" .Values.flows "netem" $profile "owner" (printf "%s/%s" .Release.Namespace .Release.Name) "httpPort" .Values.http.port | toPrettyJson | indent 4 }}
+{{- end }}

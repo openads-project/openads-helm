@@ -14,8 +14,9 @@ jobs:
     strategy:
       matrix:
         chart:
+          - cpu-pool-control
+          - network-traffic-control
           - openadservice
-          - tcp-gateway-netem
           - triton-server
           - zenoh-router
     steps:

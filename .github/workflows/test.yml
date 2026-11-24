@@ -16,21 +16,6 @@ permissions:
 
 jobs:
 
-  tcp-gateway-netem:
-    name: Test tcp-gateway-netem
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v7
-      with:
-        python-version: "3.12"
-    - uses: azure/setup-helm@v4
-      with:
-        version: v3.18.4
-    - run: python -m pip install PyYAML
-    - run: python -m unittest discover -s charts/tcp-gateway-netem/tests -v
-    - run: helm lint charts/tcp-gateway-netem
-
   cpu-pool-control:
     name: Test cpu-pool-control
     runs-on: ubuntu-latest
@@ -45,3 +30,16 @@ jobs:
     - run: python -m pip install PyYAML
     - run: python -m unittest discover -s charts/cpu-pool-control/tests -v
     - run: helm lint charts/cpu-pool-control
+
+  network-traffic-control:
+    name: Test network-traffic-control
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: azure/setup-helm@v4
+      with:
+        version: v3.18.4
+    - run: helm lint charts/network-traffic-control -f charts/network-traffic-control/tests/values.yaml
+    - run: python3 -m unittest discover -s charts/network-traffic-control/tests -p test_controller.py -v
+    - run: sudo modprobe ifb
+    - run: sudo env NTC_KERNEL_TEST=1 python3 -m unittest discover -s charts/network-traffic-control/tests -p test_kernel.py -v

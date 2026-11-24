@@ -1,0 +1,20 @@
+{{- if .Values.flows }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  {{- if .Values.http.nodePort }}
+  type: NodePort
+  externalTrafficPolicy: Local
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}
+  ports:
+  - name: netem-http
+    port: {{ .Values.http.port }}
+    targetPort: netem-http
+    {{- with .Values.http.nodePort }}
+    nodePort: {{ . }}
+    {{- end }}
+{{- end }}

@@ -12,6 +12,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   helm-oci-openadservice:
     name: Publish openadservice
     runs-on: ubuntu-latest
@@ -53,10 +54,10 @@ jobs:
     strategy:
       matrix:
         chart:
+          - cpu-pool-control
+          - network-traffic-control
           - triton-server
           - zenoh-router
-          - tcp-gateway-netem
-          - cpu-pool-control
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
