@@ -36,10 +36,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
     - uses: azure/setup-helm@v4
       with:
         version: v3.18.4
+    - run: python3 -m pip install PyYAML
     - run: helm lint charts/network-traffic-control -f charts/network-traffic-control/tests/values.yaml
-    - run: python3 -m unittest discover -s charts/network-traffic-control/tests -p test_controller.py -v
+    - run: python3 -m unittest discover -s charts/network-traffic-control/tests -v
     - run: sudo modprobe ifb
     - run: sudo env NTC_KERNEL_TEST=1 python3 -m unittest discover -s charts/network-traffic-control/tests -p test_kernel.py -v

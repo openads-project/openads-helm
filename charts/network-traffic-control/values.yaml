@@ -34,5 +34,5 @@ http:
   # port is the controller's listening port and the Service port
   port: 18080
 
-  # nodePort optionally exposes the controller outside the cluster; null creates a ClusterIP Service
+  # nodePort optionally exposes the control API via a relay pod; null creates a ClusterIP Service
   nodePort: null

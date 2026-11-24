@@ -21,8 +21,10 @@ The controller loads the initial profile from `netem` and starts in bypass.
 Send `{"bypass":false}` to enable that profile, or include any overrides in the
 same request. Later requests retain the current values for omitted fields.
 The controller and its ClusterIP Service use `http.port` (default `18080`).
-Set `http.nodePort` where cross-cluster access is necessary. Any client that
-can reach the HTTP API can update the profile.
+Set `http.nodePort` for cross-cluster access. The NodePort targets an
+unprivileged relay on the pod network, which forwards only the control API to
+the controller through a separate ClusterIP Service. Any client that can
+reach the HTTP API can update the profile.
 
 ```sh
 curl -fsS http://network-traffic-control:18080/health
