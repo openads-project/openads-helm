@@ -1,0 +1,8 @@
+nodeSelector:
+  kubernetes.io/hostname: test-wan-node
+peerAddress: 192.0.2.1
+flows:
+- destinationPort: 7448
+- sourcePort: 8554
+http:
+  nodePort: 30880

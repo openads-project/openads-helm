@@ -1,0 +1,38 @@
+# nodeSelector is an optional map of node labels for pinning the controller to its receiving WAN node
+nodeSelector: {}
+
+# peerAddress is the sending node's IPv4 address as seen at ingress; the route to it determines the local address and interface
+peerAddress: ""
+
+# flows is a list of TCP port selectors that share the shaping queue; specify one sourcePort or destinationPort per entry
+# - destinationPort: 7448
+# - sourcePort: 8554
+flows: []
+
+netem:
+
+  # delay is the default delay added to matching packets
+  delay: 0ms
+
+  # jitter is the default variation around delay
+  jitter: 0ms
+
+  # loss is the default percentage of matching packets to drop
+  loss: 0%
+
+  # rate is the default aggregate bandwidth limit shared by all matching flows
+  rate: 1000mbit
+
+  # distribution is the default jitter distribution, e.g., normal or pareto
+  distribution: normal
+
+  # limit is the default maximum number of packets held in the emulation queue
+  limit: 1000
+
+http:
+
+  # port is the controller's listening port and the Service port
+  port: 18080
+
+  # nodePort optionally exposes the control API via a relay pod; null creates a ClusterIP Service
+  nodePort: null

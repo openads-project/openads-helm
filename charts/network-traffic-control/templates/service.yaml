@@ -1,0 +1,38 @@
+{{- if .Values.flows }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  {{- if .Values.http.nodePort }}
+  type: NodePort
+  externalTrafficPolicy: Local
+  {{- end }}
+  selector:
+    {{- if .Values.http.nodePort }}
+    app.kubernetes.io/name: {{ .Release.Name }}-http
+    {{- else }}
+    app.kubernetes.io/name: {{ .Release.Name }}
+    {{- end }}
+  ports:
+  - name: netem-http
+    port: {{ .Values.http.port }}
+    targetPort: netem-http
+    {{- with .Values.http.nodePort }}
+    nodePort: {{ . }}
+    {{- end }}
+{{- if .Values.http.nodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-local
+spec:
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}
+  ports:
+  - name: netem-http
+    port: {{ .Values.http.port }}
+    targetPort: netem-http
+{{- end }}
+{{- end }}

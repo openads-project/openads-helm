@@ -1,0 +1,4 @@
+apiVersion: v2
+name: network-traffic-control
+version: 0.1.0
+description: Packet-level network traffic control on host ingress

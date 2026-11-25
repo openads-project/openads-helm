@@ -23,6 +23,8 @@ This repository contains essential Helm charts for [***OpenADS***](https://opena
 | [openadservice](./charts/openadservice) | 1.2.0 | OpenADService base chart providing common structure and configuration |
 | [triton-server](./charts/triton-server) | 26.05 | NVIDIA Triton Inference Server |
 | [zenoh-router](./charts/zenoh-router) | 0.2.10 | Zenoh Router for ROS 2 RMW Zenoh |
+| [cpu-pool-control](./charts/cpu-pool-control) | 0.1.0 | CPU pool and frequency control for pods |
+| [network-traffic-control](./charts/network-traffic-control) | 0.1.0 | Packet-level network traffic control on host ingress |
 
 ## 🚀 Usage
 

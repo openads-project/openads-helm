@@ -1,0 +1,41 @@
+{{- if and .Values.flows .Values.http.nodePort }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-http
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-http
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-http
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      containers:
+      - name: http-relay
+        image: nicolaka/netshoot:v0.14
+        command: [socat]
+        args:
+        - {{ printf "TCP4-LISTEN:%v,reuseaddr,fork" .Values.http.port | quote }}
+        - {{ printf "TCP4:%s-local:%v,connect-timeout=2" .Release.Name .Values.http.port | quote }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        ports:
+        - name: netem-http
+          containerPort: {{ .Values.http.port }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: netem-http
+{{- end }}

@@ -14,7 +14,10 @@ jobs:
     strategy:
       matrix:
         chart:
+          - cpu-pool-control
+          - network-traffic-control
           - openadservice
+          - triton-server
           - zenoh-router
     steps:
       - name: Cleanup ${{ matrix.chart }}
