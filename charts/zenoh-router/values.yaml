@@ -1,6 +1,6 @@
 openadservice:
   name: zenoh-router
-  image: rwthika/ros2:jazzy-ros-base-alternative-rmw
+  image: rwthika/ros2:jazzy
   env:
     RMW_IMPLEMENTATION: rmw_zenoh_cpp
     RUST_LOG: zenoh=info,zenoh_transport=debug
