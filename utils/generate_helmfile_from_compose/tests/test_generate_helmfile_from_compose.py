@@ -525,7 +525,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
                         add_file(child, "openadservice/Chart.yaml", "name: openadservice\n")
                         add_file(child, "openadservice/values.yaml", yaml.safe_dump(base_values))
                     child_bytes = child_data.getvalue()
-                    entry = tarfile.TarInfo("service/charts/openadservice-1.2.0.tgz")
+                    entry = tarfile.TarInfo("service/charts/openadservice-1.3.0.tgz")
                     entry.size = len(child_bytes)
                     archive.addfile(entry, io.BytesIO(child_bytes))
                 else:
@@ -709,12 +709,12 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
             self.converter._convert_service("router", {"image": "example.test/router:1"})
 
     def test_base_chart_takes_values_at_top_level(self) -> None:
-        chart = ChartRef("oci://example.test/openadservice", "1.2.0")
+        chart = ChartRef("oci://example.test/openadservice", "1.3.0")
         base_values = {"name": None, "gpu": False, "ports": []}
 
         def fetch(command, **kwargs):
             destination = Path(command[command.index("--destination") + 1])
-            with tarfile.open(destination / "openadservice-1.2.0.tgz", "w:gz") as archive:
+            with tarfile.open(destination / "openadservice-1.3.0.tgz", "w:gz") as archive:
                 for name, content in (
                     ("openadservice/Chart.yaml", "name: openadservice\n"),
                     ("openadservice/values.yaml", yaml.safe_dump(base_values)),
@@ -751,7 +751,7 @@ class HostEnvironmentRenderingTest(unittest.TestCase):
     def test_block_indentation_follows_values_root(self) -> None:
         for chart, indent in (
             (ChartRef("oci://example.test/service", "1.0.0"), 2),
-            (ChartRef("oci://example.test/openadservice", "1.2.0"), 0),
+            (ChartRef("oci://example.test/openadservice", "1.3.0"), 0),
         ):
             with self.subTest(chart=chart.url):
                 service = ConvertedService(
