@@ -1,6 +1,6 @@
 apiVersion: v2
 name: triton-server
-version: 26.05-1.3.0
+version: 26.05-1
 appVersion: 26.05
 description: NVIDIA Triton Inference Server
 dependencies:
