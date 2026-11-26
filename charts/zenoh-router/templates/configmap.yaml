@@ -15,6 +15,14 @@ rendering the JSON5 configuration with tpl.
 {{- $_ := set $openadserviceValues "name" $name }}
 {{- if and $openadserviceValues.enable $openadserviceValues.enableConfigMap }}
 {{- $ctx := dict "Values" (mergeOverwrite (deepCopy $.Values) (dict "openadservice" $openadserviceValues)) "Release" $.Release "Chart" $.Chart "Capabilities" $.Capabilities "Files" $.Files "Template" $.Template }}
+{{- include "openadservice.applyOverrides" (dict "manifest" (include "zenoh-router.configMap" $ctx) "overrides" $openadserviceValues.overrides.configMap) }}
+{{- end }}
+{{- end }}
+
+{{- define "zenoh-router.configMap" }}
+{{- $openadserviceValues := .Values.openadservice }}
+{{- $name := $openadserviceValues.name }}
+{{- $ctx := . }}
 apiVersion: v1
 kind: ConfigMap
 {{- $routerConfigMapName := include "openadservice.rfc1123CompliantName" (printf "%s-%s" $name ("DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5")) }}
@@ -26,7 +34,6 @@ metadata:
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-{{ tpl (($.Files.Glob "files/DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5").AsConfig) $ctx | indent 2 }}
+{{ tpl (($ctx.Files.Glob "files/DEFAULT_RMW_ZENOH_ROUTER_CONFIG.json5").AsConfig) $ctx | indent 2 }}
 ---
-{{- end }}
 {{- end }}

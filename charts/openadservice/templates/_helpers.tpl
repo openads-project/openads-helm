@@ -108,3 +108,21 @@ Example:
 {{- $basename := include "openadservice.rfc1123CompliantName" (base .mountPath) -}}
 {{- printf "%s-%s" (printf "%s-%s" $serviceName $basename | trunc 50 | trimSuffix "-") (sha256sum .mountPath | trunc 12) -}}
 {{- end -}}
+
+{{/*
+Merges overrides into each generated resource document. Documents are only
+re-serialized when overrides are set, so the rendered output stays unchanged otherwise.
+*/}}
+{{- define "openadservice.applyOverrides" }}
+{{- range $doc := splitList "\n---" .manifest }}
+{{- with printf "%s\n" $doc | fromYaml }}
+{{- if hasKey . "Error" }}{{ fail (printf "failed to parse rendered manifest: %s" .Error) }}{{ end }}
+{{- if $.overrides }}
+{{ toYaml (mergeOverwrite . (deepCopy $.overrides)) }}
+{{- else }}
+{{ $doc }}
+{{- end }}
+---
+{{- end }}
+{{- end }}
+{{- end }}
